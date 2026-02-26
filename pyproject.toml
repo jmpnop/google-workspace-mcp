@@ -108,7 +108,7 @@ where = ["."]
 exclude = ["tests*", "docs*", "build", "dist"]
 
 [tool.pytest.ini_options]
-collect_ignore_glob = ["**/manual_test.py"]
+addopts = "--ignore-glob=**/manual_test.py"
 
 [tool.setuptools.package-data]
 core = ["tool_tiers.yaml"]
