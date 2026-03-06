@@ -885,6 +885,137 @@ async def batch_update_doc(
 
 
 @server.tool()
+@handle_http_errors("insert_table_of_contents", service_type="script")
+@require_multiple_services([
+    {"service_type": "script", "scopes": "script_projects", "param_name": "script_service"},
+    {"service_type": "drive", "scopes": "drive_file", "param_name": "drive_service"},
+])
+async def insert_table_of_contents(
+    script_service: Any,
+    drive_service: Any,
+    user_google_email: str,
+    document_id: str,
+) -> str:
+    """
+    Inserts an auto-generated table of contents into a Google Doc.
+
+    The TOC is built from the document's heading structure (H1–H6) and updates
+    automatically when headings change. Uses Google Apps Script internally since
+    the Docs REST API does not support TOC insertion.
+
+    Args:
+        user_google_email: User's Google email address
+        document_id: ID of the document to insert the TOC into
+
+    Returns:
+        str: Confirmation message with document link
+    """
+    logger.info(
+        f"[insert_table_of_contents] Doc={document_id}, User={user_google_email}"
+    )
+
+    script_id = None
+    try:
+        # 1. Create a bound Apps Script project on the document
+        project = await asyncio.to_thread(
+            script_service.projects()
+            .create(body={"title": "_TOC_inserter", "parentId": document_id})
+            .execute
+        )
+        script_id = project.get("scriptId")
+        logger.info(f"[insert_table_of_contents] Created bound script {script_id}")
+
+        # 2. Upload the TOC insertion code
+        script_code = (
+            "function insertTOC() {\n"
+            "  var doc = DocumentApp.openById('" + document_id + "');\n"
+            "  var body = doc.getBody();\n"
+            "  // Find the TABLE OF CONTENTS heading\n"
+            "  var searchResult = body.findText('TABLE OF CONTENTS');\n"
+            "  if (searchResult) {\n"
+            "    var element = searchResult.getElement();\n"
+            "    var paragraph = element.getParent();\n"
+            "    var index = body.getChildIndex(paragraph);\n"
+            "    body.insertTableOfContents(index + 1);\n"
+            "  } else {\n"
+            "    // If no heading found, insert at position 0\n"
+            "    body.insertTableOfContents(0);\n"
+            "  }\n"
+            "  doc.saveAndClose();\n"
+            "  return 'TOC inserted';\n"
+            "}\n"
+        )
+
+        await asyncio.to_thread(
+            script_service.projects()
+            .updateContent(
+                scriptId=script_id,
+                body={
+                    "files": [
+                        {
+                            "name": "Code",
+                            "type": "SERVER_JS",
+                            "source": script_code,
+                        },
+                        {
+                            "name": "appsscript",
+                            "type": "JSON",
+                            "source": '{"timeZone":"America/New_York","dependencies":{},"exceptionLogging":"STACKDRIVER","oauthScopes":["https://www.googleapis.com/auth/documents"]}',
+                        },
+                    ]
+                },
+            )
+            .execute
+        )
+        logger.info(f"[insert_table_of_contents] Uploaded script code to {script_id}")
+
+        # 3. Run the function in dev mode (no deployment needed)
+        response = await asyncio.to_thread(
+            script_service.scripts()
+            .run(
+                scriptId=script_id,
+                body={"function": "insertTOC", "devMode": True},
+            )
+            .execute
+        )
+
+        if "error" in response:
+            error_msg = response["error"].get("message", "Unknown error")
+            details = response["error"].get("details", [])
+            detail_msgs = []
+            for d in details:
+                if "errorMessage" in d:
+                    detail_msgs.append(d["errorMessage"])
+            full_error = f"{error_msg}. {'; '.join(detail_msgs)}" if detail_msgs else error_msg
+            return f"Error inserting TOC: {full_error}"
+
+        result = response.get("response", {}).get("result", "done")
+        logger.info(f"[insert_table_of_contents] Script executed: {result}")
+
+        link = f"https://docs.google.com/document/d/{document_id}/edit"
+        return f"Successfully inserted auto-generated Table of Contents into document. Link: {link}"
+
+    except Exception as e:
+        logger.error(f"[insert_table_of_contents] Failed: {str(e)}")
+        return f"Error inserting table of contents: {str(e)}"
+
+    finally:
+        # 4. Clean up: delete the temporary script project
+        if script_id:
+            try:
+                await asyncio.to_thread(
+                    drive_service.files().delete(fileId=script_id).execute
+                )
+                logger.info(
+                    f"[insert_table_of_contents] Cleaned up script {script_id}"
+                )
+            except Exception as cleanup_err:
+                logger.warning(
+                    f"[insert_table_of_contents] Cleanup failed for {script_id}: {cleanup_err}"
+                )
+
+
+@server.tool()
 @handle_http_errors("inspect_doc_structure", is_read_only=True, service_type="docs")
 @require_google_service("docs", "docs_read")
 async def inspect_doc_structure(
