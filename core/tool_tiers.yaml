@@ -68,6 +68,9 @@ docs:
     - insert_doc_elements
     - update_paragraph_style
     - get_doc_as_markdown
+    - git_snapshot_doc
+    - git_doc_history
+    - git_doc_diff
   complete:
     - insert_doc_image
     - update_doc_headers_footers
