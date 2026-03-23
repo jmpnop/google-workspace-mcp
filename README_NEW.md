@@ -104,6 +104,7 @@ export OAUTHLIB_INSECURE_TRANSPORT=1  # Development only
 | `list_docs_in_folder` | Extended | List Docs in a specific folder |
 | `insert_doc_elements` | Extended | Add tables, lists, page breaks |
 | `export_doc_to_pdf` | Extended | Export to PDF and save to Drive |
+| `insert_doc_svg` | Extended | Insert SVG as PNG (rsvg-convert/cairosvg, auto viewBox sizing) |
 | `insert_doc_image` | Complete | Insert images from Drive or URLs |
 | `update_doc_headers_footers` | Complete | Modify headers/footers |
 | `batch_update_doc` | Complete | Execute multiple operations atomically |
