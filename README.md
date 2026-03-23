@@ -935,6 +935,7 @@ Saved files expire after 1 hour and are cleaned up automatically.
 | `find_and_replace_doc` | Extended | Find and replace text |
 | `list_docs_in_folder` | Extended | List docs in folder |
 | `insert_doc_elements` | Extended | Add tables, lists, page breaks |
+| `insert_doc_svg` | Extended | Insert SVG as PNG (rsvg-convert/cairosvg, auto viewBox sizing) |
 | `update_paragraph_style` | Extended | Apply heading styles, lists (bulleted/numbered with nesting), and paragraph formatting |
 | `get_doc_as_markdown` | Extended | Export document as formatted Markdown with optional comments |
 | `insert_doc_image` | Complete | Insert images from Drive/URLs |
