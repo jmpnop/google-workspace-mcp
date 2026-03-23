@@ -7,7 +7,10 @@ This module provides MCP tools for interacting with Google Docs API and managing
 import logging
 import asyncio
 import io
+import os
 import re
+import subprocess
+import time
 from typing import List, Dict, Any
 
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
@@ -1803,6 +1806,123 @@ async def get_doc_as_markdown(
     else:
         appendix = format_comments_appendix(comments)
         return markdown.rstrip("\n") + "\n\n" + appendix
+
+
+CHROME_EXT_DIR = "/Users/pasha/PycharmProjects/internexcapital/chrome-toc-extension"
+CHROME_EXT_ID = "kkgjjdinlgnejimfnngjfcdpanjfolgn"
+CHROME_EXT_RESULT = "/tmp/toc_extension_result.json"
+CHROME_EXT_PORT = 8765
+
+
+async def _chrome_ext_action(action: str, document_id: str, timeout: int = 30) -> dict:
+    """Trigger a Chrome extension action and wait for result.
+
+    The Chrome extension at CHROME_EXT_DIR uses CDP (Chrome Debugger Protocol)
+    to automate Google Docs UI actions that aren't available via the REST API
+    (e.g., pageless mode, TOC insertion via native UI).
+
+    Flow: start local HTTP server → open trigger.html in Chrome →
+    extension performs UI automation → POSTs result back to server.
+    """
+    import socket
+
+    # Check if server is already running on CHROME_EXT_PORT
+    server_running = False
+    try:
+        with socket.create_connection(("localhost", CHROME_EXT_PORT), timeout=1):
+            server_running = True
+    except (ConnectionRefusedError, OSError):
+        pass
+
+    if not server_running:
+        logger.info(f"[chrome_ext] Starting server on port {CHROME_EXT_PORT}")
+        subprocess.Popen(
+            ["python3", os.path.join(CHROME_EXT_DIR, "server.py")],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        await asyncio.sleep(1)
+
+    # Clear previous result
+    if os.path.exists(CHROME_EXT_RESULT):
+        os.remove(CHROME_EXT_RESULT)
+
+    # Open Chrome to trigger URL
+    trigger_url = (
+        f"http://localhost:{CHROME_EXT_PORT}/trigger.html"
+        f"?action={action}&docId={document_id}"
+    )
+    logger.info(f"[chrome_ext] Triggering: {trigger_url}")
+    subprocess.Popen(["open", "-a", "Google Chrome", trigger_url])
+
+    # Poll for result
+    start = time.time()
+    while time.time() - start < timeout:
+        if os.path.exists(CHROME_EXT_RESULT):
+            await asyncio.sleep(0.5)  # let file finish writing
+            with open(CHROME_EXT_RESULT) as f:
+                return json.loads(f.read())
+        await asyncio.sleep(1)
+
+    return {"error": f"Timeout after {timeout}s waiting for Chrome extension result"}
+
+
+@server.tool()
+@handle_http_errors("set_doc_pageless", service_type="docs")
+@require_google_service("docs", "docs_read")
+async def set_doc_pageless(
+    service: Any,
+    user_google_email: str,
+    document_id: str,
+) -> str:
+    """
+    Sets a Google Doc to pageless (scrolling) mode.
+
+    Pageless mode removes page boundaries and displays the document as a
+    continuous scroll — ideal for technical docs, specs, and dark-themed
+    documents where page breaks are visual clutter.
+
+    This uses Chrome browser automation (CDP) because the Google Docs REST API
+    does not expose pageless mode. Requires the Chrome TOC extension to be
+    installed and Chrome to be running.
+
+    Args:
+        user_google_email: User's Google email address
+        document_id: ID of the document to set to pageless mode
+
+    Returns:
+        str: Confirmation message or error details
+    """
+    logger.info(f"[set_doc_pageless] Doc={document_id}, User={user_google_email}")
+
+    # Verify doc exists first (uses the injected docs service)
+    try:
+        doc = await asyncio.to_thread(
+            service.documents().get(documentId=document_id).execute
+        )
+        title = doc.get("title", "Untitled")
+    except Exception as e:
+        return f"Error: Document {document_id} not accessible: {e}"
+
+    result = await _chrome_ext_action("setPageless", document_id, timeout=30)
+
+    if result.get("success"):
+        steps = result.get("steps", [])
+        link = f"https://docs.google.com/document/d/{document_id}/edit"
+        return (
+            f"Successfully set '{title}' to pageless mode.\n"
+            f"Steps: {' → '.join(steps)}\n"
+            f"Link: {link}"
+        )
+    else:
+        error = result.get("error", "Unknown error")
+        steps = result.get("steps", [])
+        detail = result.get("detail", "")
+        return (
+            f"Failed to set pageless mode: {error}\n"
+            f"Steps completed: {' → '.join(steps) if steps else 'none'}\n"
+            f"Detail: {detail}"
+        )
 
 
 # Create comment management tools for documents

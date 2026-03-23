@@ -14,6 +14,7 @@ from gdocs.docs_helpers import (
     create_delete_range_request,
     create_format_text_request,
     create_update_paragraph_style_request,
+    create_update_table_cell_style_request,
     create_find_replace_request,
     create_insert_table_request,
     create_insert_page_break_request,
@@ -267,6 +268,31 @@ class BatchOperationManager:
 
             description = f"paragraph style {op['start_index']}-{op['end_index']} ({', '.join(style_changes)})"
 
+        elif op_type == "update_table_cell_style":
+            request = create_update_table_cell_style_request(
+                op["table_start_index"],
+                row_index=op.get("row_index"),
+                column_index=op.get("column_index", 0),
+                row_span=op.get("row_span", 1),
+                column_span=op.get("column_span", 100),
+                border_top_width=op.get("border_top_width"),
+                border_bottom_width=op.get("border_bottom_width"),
+                border_left_width=op.get("border_left_width"),
+                border_right_width=op.get("border_right_width"),
+                border_color=op.get("border_color"),
+                padding_top=op.get("padding_top"),
+                padding_bottom=op.get("padding_bottom"),
+                padding_left=op.get("padding_left"),
+                padding_right=op.get("padding_right"),
+                background_color=op.get("background_color"),
+            )
+
+            if not request:
+                raise ValueError("No table cell style options provided")
+
+            target = f"row {op['row_index']}" if op.get("row_index") is not None else "all cells"
+            description = f"table cell style at {op['table_start_index']} ({target})"
+
         elif op_type == "insert_table":
             request = create_insert_table_request(
                 op["index"], op["rows"], op["columns"]
@@ -290,6 +316,7 @@ class BatchOperationManager:
                 "replace_text",
                 "format_text",
                 "update_paragraph_style",
+                "update_table_cell_style",
                 "insert_table",
                 "insert_page_break",
                 "find_replace",
@@ -389,6 +416,26 @@ class BatchOperationManager:
                         "space_below",
                     ],
                     "description": "Apply paragraph-level styling (headings, alignment, spacing, indentation)",
+                },
+                "update_table_cell_style": {
+                    "required": ["table_start_index"],
+                    "optional": [
+                        "row_index",
+                        "column_index",
+                        "row_span",
+                        "column_span",
+                        "border_top_width",
+                        "border_bottom_width",
+                        "border_left_width",
+                        "border_right_width",
+                        "border_color",
+                        "padding_top",
+                        "padding_bottom",
+                        "padding_left",
+                        "padding_right",
+                        "background_color",
+                    ],
+                    "description": "Style table cell borders, padding, and background. Omit row_index to target whole table.",
                 },
                 "insert_table": {
                     "required": ["index", "rows", "columns"],

@@ -941,6 +941,7 @@ Saved files expire after 1 hour and are cleaned up automatically.
 | `update_doc_headers_footers` | Complete | Modify headers and footers |
 | `batch_update_doc` | Complete | Execute multiple operations |
 | `insert_table_of_contents` | Complete | Insert auto-generated TOC from headings |
+| `set_doc_pageless` | Complete | Set document to pageless (scrolling) mode via Chrome CDP |
 | `inspect_doc_structure` | Complete | Analyze document structure |
 | `export_doc_to_pdf` | Extended | Export document to PDF |
 | `create_table_with_data` | Complete | Create data tables |

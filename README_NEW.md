@@ -92,7 +92,7 @@ export OAUTHLIB_INSECURE_TRANSPORT=1  # Development only
 
 **Event features:** Timezone support, transparency (busy/free), visibility settings, up to 5 custom reminders
 
-### Google Docs (16 tools)
+### Google Docs (17 tools)
 
 | Tool | Tier | Description |
 |------|------|-------------|
@@ -108,6 +108,7 @@ export OAUTHLIB_INSECURE_TRANSPORT=1  # Development only
 | `update_doc_headers_footers` | Complete | Modify headers/footers |
 | `batch_update_doc` | Complete | Execute multiple operations atomically |
 | `insert_table_of_contents` | Complete | Insert auto-generated TOC from document headings |
+| `set_doc_pageless` | Complete | Set document to pageless (scrolling) mode via Chrome CDP |
 | `inspect_doc_structure` | Complete | Analyze document structure for safe insertion points |
 | `create_table_with_data` | Complete | Create and populate tables in one operation |
 | `debug_table_structure` | Complete | Debug table cell positions and content |

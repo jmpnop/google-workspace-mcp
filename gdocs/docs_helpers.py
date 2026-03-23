@@ -515,6 +515,132 @@ def create_bullet_list_request(
     return requests
 
 
+def create_update_table_cell_style_request(
+    table_start_index: int,
+    row_index: int = None,
+    column_index: int = 0,
+    row_span: int = 1,
+    column_span: int = 100,
+    border_top_width: float = None,
+    border_bottom_width: float = None,
+    border_left_width: float = None,
+    border_right_width: float = None,
+    border_color: str = None,
+    padding_top: float = None,
+    padding_bottom: float = None,
+    padding_left: float = None,
+    padding_right: float = None,
+    background_color: str = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Create an updateTableCellStyle request for Google Docs API.
+
+    Can target the whole table (row_index=None) or a specific row range.
+
+    Args:
+        table_start_index: Start index of the table element
+        row_index: Row to target (None = whole table)
+        column_index: Starting column (default 0)
+        row_span: Number of rows to span (default 1)
+        column_span: Number of columns to span (default 100 = all)
+        border_top_width: Top border width in points
+        border_bottom_width: Bottom border width in points
+        border_left_width: Left border width in points
+        border_right_width: Right border width in points
+        border_color: Border color as hex "#RRGGBB" (shared by all borders)
+        padding_top: Top padding in points
+        padding_bottom: Bottom padding in points
+        padding_left: Left padding in points
+        padding_right: Right padding in points
+        background_color: Cell background color as hex "#RRGGBB"
+
+    Returns:
+        Dictionary representing the updateTableCellStyle request, or None
+    """
+    table_cell_style = {}
+    fields = []
+
+    # Resolve border color
+    border_rgb = None
+    if border_color is not None:
+        border_rgb = _normalize_color(border_color, "border_color")
+
+    def _make_border(width: float) -> Dict[str, Any]:
+        border = {
+            "width": {"magnitude": width, "unit": "PT"},
+            "dashStyle": "SOLID",
+        }
+        if border_rgb is not None:
+            border["color"] = {"color": {"rgbColor": border_rgb}}
+        return border
+
+    if border_top_width is not None:
+        table_cell_style["borderTop"] = _make_border(border_top_width)
+        fields.append("borderTop")
+
+    if border_bottom_width is not None:
+        table_cell_style["borderBottom"] = _make_border(border_bottom_width)
+        fields.append("borderBottom")
+
+    if border_left_width is not None:
+        table_cell_style["borderLeft"] = _make_border(border_left_width)
+        fields.append("borderLeft")
+
+    if border_right_width is not None:
+        table_cell_style["borderRight"] = _make_border(border_right_width)
+        fields.append("borderRight")
+
+    if padding_top is not None:
+        table_cell_style["paddingTop"] = {"magnitude": padding_top, "unit": "PT"}
+        fields.append("paddingTop")
+
+    if padding_bottom is not None:
+        table_cell_style["paddingBottom"] = {"magnitude": padding_bottom, "unit": "PT"}
+        fields.append("paddingBottom")
+
+    if padding_left is not None:
+        table_cell_style["paddingLeft"] = {"magnitude": padding_left, "unit": "PT"}
+        fields.append("paddingLeft")
+
+    if padding_right is not None:
+        table_cell_style["paddingRight"] = {"magnitude": padding_right, "unit": "PT"}
+        fields.append("paddingRight")
+
+    if background_color is not None:
+        bg_rgb = _normalize_color(background_color, "background_color")
+        table_cell_style["backgroundColor"] = {"color": {"rgbColor": bg_rgb}}
+        fields.append("backgroundColor")
+
+    if not table_cell_style:
+        return None
+
+    request = {
+        "updateTableCellStyle": {
+            "tableCellStyle": table_cell_style,
+            "fields": ",".join(fields),
+        }
+    }
+
+    if row_index is not None:
+        # Target specific rows/columns
+        request["updateTableCellStyle"]["tableRange"] = {
+            "tableCellLocation": {
+                "tableStartLocation": {"index": table_start_index},
+                "rowIndex": row_index,
+                "columnIndex": column_index,
+            },
+            "rowSpan": row_span,
+            "columnSpan": column_span,
+        }
+    else:
+        # Target whole table
+        request["updateTableCellStyle"]["tableStartLocation"] = {
+            "index": table_start_index
+        }
+
+    return request
+
+
 def validate_operation(operation: Dict[str, Any]) -> tuple[bool, str]:
     """
     Validate a batch operation dictionary.
@@ -536,6 +662,7 @@ def validate_operation(operation: Dict[str, Any]) -> tuple[bool, str]:
         "replace_text": ["start_index", "end_index", "text"],
         "format_text": ["start_index", "end_index"],
         "update_paragraph_style": ["start_index", "end_index"],
+        "update_table_cell_style": ["table_start_index"],
         "insert_table": ["index", "rows", "columns"],
         "insert_page_break": ["index"],
         "find_replace": ["find_text", "replace_text"],
