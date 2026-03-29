@@ -1819,7 +1819,7 @@ async def _chrome_ext_action(action: str, document_id: str, timeout: int = 30) -
 
     The Chrome extension at CHROME_EXT_DIR uses CDP (Chrome Debugger Protocol)
     to automate Google Docs UI actions that aren't available via the REST API
-    (e.g., pageless mode, TOC insertion via native UI).
+    (e.g., TOC insertion via native UI).
 
     Flow: start local HTTP server → open trigger.html in Chrome →
     extension performs UI automation → POSTs result back to server.
@@ -1876,15 +1876,13 @@ async def set_doc_pageless(
     document_id: str,
 ) -> str:
     """
-    Sets a Google Doc to pageless (scrolling) mode.
+    Sets a Google Doc to pageless (scrolling) mode via the Docs API.
 
     Pageless mode removes page boundaries and displays the document as a
     continuous scroll — ideal for technical docs, specs, and dark-themed
     documents where page breaks are visual clutter.
 
-    This uses Chrome browser automation (CDP) because the Google Docs REST API
-    does not expose pageless mode. Requires the Chrome TOC extension to be
-    installed and Chrome to be running.
+    Uses the documentStyle.documentFormat.documentMode API field.
 
     Args:
         user_google_email: User's Google email address
@@ -1904,24 +1902,38 @@ async def set_doc_pageless(
     except Exception as e:
         return f"Error: Document {document_id} not accessible: {e}"
 
-    result = await _chrome_ext_action("setPageless", document_id, timeout=30)
+    # Set pageless via Docs API
+    await asyncio.to_thread(
+        service.documents().batchUpdate(
+            documentId=document_id,
+            body={"requests": [{
+                "updateDocumentStyle": {
+                    "documentStyle": {
+                        "documentFormat": {"documentMode": "PAGELESS"}
+                    },
+                    "fields": "documentFormat",
+                }
+            }]},
+        ).execute
+    )
 
-    if result.get("success"):
-        steps = result.get("steps", [])
-        link = f"https://docs.google.com/document/d/{document_id}/edit"
+    # Verify
+    doc = await asyncio.to_thread(
+        service.documents().get(documentId=document_id).execute
+    )
+    mode = doc.get("documentStyle", {}).get("documentFormat", {}).get("documentMode")
+    link = f"https://docs.google.com/document/d/{document_id}/edit"
+
+    if mode == "PAGELESS":
         return (
             f"Successfully set '{title}' to pageless mode.\n"
-            f"Steps: {' → '.join(steps)}\n"
+            f"Method: Docs API (documentFormat.documentMode=PAGELESS)\n"
             f"Link: {link}"
         )
     else:
-        error = result.get("error", "Unknown error")
-        steps = result.get("steps", [])
-        detail = result.get("detail", "")
         return (
-            f"Failed to set pageless mode: {error}\n"
-            f"Steps completed: {' → '.join(steps) if steps else 'none'}\n"
-            f"Detail: {detail}"
+            f"Failed to set pageless mode: documentMode is '{mode}'\n"
+            f"Link: {link}"
         )
 
 
