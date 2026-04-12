@@ -31,6 +31,7 @@ mcp_server_debug.log
 /.credentials
 /.claude/*
 !/.claude/skills/
+!/.claude/CLAUDE.md
 .serena/
 Caddyfile
 ecosystem.config.cjs

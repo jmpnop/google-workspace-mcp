@@ -1,6 +1,6 @@
 ---
 name: gdocs-tufte-crt
-description: Creates and formats Google Docs using the Tufte CRT design — JetBrains Mono on near-black background with phosphor-colored text. Three color variants: C (Cyan, default), O (Orange), G (Green). Use when creating dark-themed Google Docs with CRT/terminal aesthetic.
+description: Creates and formats Google Docs using the Tufte CRT design — JetBrains Mono on near-black background with phosphor-colored text. Three color variants: C (Cyan, default), A (Amber), G (Green). Use when creating dark-themed Google Docs with CRT/terminal aesthetic.
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
@@ -10,32 +10,42 @@ Create dark-themed Google Docs using the Docs API with CRT/terminal aesthetic: n
 
 ## When to use this skill
 
-When the user asks to create or format a Google Doc in "Tufte CRT", "CRT style", or "dark Tufte" style. Also when they specify a color variant: "CRT-C" (cyan), "CRT-O" (orange), "CRT-G" (green).
+When the user asks to create or format a Google Doc in "Tufte CRT", "CRT style", or "dark Tufte" style. Also when they specify a color variant: "CRT-C" (cyan), "CRT-A" (amber), "CRT-G" (green).
 
-**Reference implementation:** `agents/generate_pipeline_doc.py` in the PolyWhale project.
+**Reference:** A dark variation of the Tufte Classic design system. See `gdocs-tufte-classic` for the light variant.
 
 ## Color Variants
 
 | Variant | Flag | Default | Heading Color | Body Color | Dim | Faint | Ghost |
 |---------|------|---------|--------------|------------|-----|-------|-------|
 | **Cyan** | C | Yes | `(0, 1, 1)` | `(0, 0.8, 0.8)` | `(0, 0.55, 0.55)` | `(0, 0.314, 0.314)` | `(0.004, 0.07, 0.07)` |
-| **Orange** | O | No | `(1, 0.6, 0)` | `(0.8, 0.48, 0)` | `(0.55, 0.33, 0)` | `(0.314, 0.188, 0)` | `(0.07, 0.042, 0.004)` |
+| **Amber** | A | No | `(1, 0.6, 0)` | `(0.8, 0.48, 0)` | `(0.55, 0.33, 0)` | `(0.314, 0.188, 0)` | `(0.07, 0.042, 0.004)` |
 | **Green** | G | No | `(0, 1, 0)` | `(0, 0.8, 0)` | `(0, 0.55, 0)` | `(0, 0.314, 0)` | `(0.004, 0.07, 0.004)` |
 
 ## Prerequisites
 
-- Python with Google API libraries (run via `uv run --project /Users/pasha/PycharmProjects/google_workspace_mcp python3`)
-- OAuth credentials at `~/.google_workspace_mcp/credentials/polikashin@celestialtech.io.json`
+- Python with Google API libraries (run via `uv run --project <WORKSPACE_MCP_PROJECT_DIR> python3`, where `<WORKSPACE_MCP_PROJECT_DIR>` is the path to the cloned `google_workspace_mcp` repo)
+- OAuth credentials in `~/.google_workspace_mcp/credentials/` (auto-detected — any `*.json` file; set `WORKSPACE_MCP_CREDENTIALS_DIR` to override)
+
+## Font — JetBrains Mono
+
+JetBrains Mono is available on [Google Fonts](https://fonts.google.com/specimen/JetBrains+Mono) and works natively in Google Docs via the API — no local installation required. The API silently falls back to Arial if the font is unavailable, so **always verify** after applying fonts (see Step 3 Verification below).
 
 ## Credential Boilerplate
 
 ```python
-import json, os
+import glob, json, os
+from pathlib import Path
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
-cred_path = os.path.expanduser("~/.google_workspace_mcp/credentials/polikashin@celestialtech.io.json")
+cred_dir = Path(os.environ.get("WORKSPACE_MCP_CREDENTIALS_DIR",
+           Path.home() / ".google_workspace_mcp/credentials"))
+cred_files = sorted(cred_dir.glob("*.json"))
+if not cred_files:
+    raise FileNotFoundError(f"No credential files found in {cred_dir}")
+cred_path = cred_files[0]
 with open(cred_path) as f:
     data = json.load(f)
 creds = Credentials(
@@ -75,7 +85,7 @@ FAINT    = {"red": 0.0, "green": 0.314, "blue": 0.314}  # H4, footers, sources
 GHOST    = {"red": 0.004, "green": 0.07, "blue": 0.07}  # Table backgrounds, code bg
 ```
 
-### Orange variant (O)
+### Amber variant (A)
 
 ```python
 BRIGHT   = {"red": 1.0,   "green": 0.6,   "blue": 0.0}
@@ -143,9 +153,8 @@ requests = [{
             "background": {
                 "color": {"color": {"rgbColor": NEAR_BLACK}}
             },
-            "useCustomHeaderFooterMargins": False,
         },
-        "fields": "pageSize,marginTop,marginBottom,marginLeft,marginRight,background,useCustomHeaderFooterMargins",
+        "fields": "pageSize,marginTop,marginBottom,marginLeft,marginRight,background",
     }
 }]
 ```
@@ -167,6 +176,33 @@ requests.append({
     }
 })
 ```
+
+### Step 3 Verification: Font Check
+
+After the base reset, read back the document and confirm JetBrains Mono applied:
+
+```python
+def verify_font(docs_svc, doc_id, expected="JetBrains Mono"):
+    doc = docs_svc.documents().get(documentId=doc_id).execute()
+    for elem in doc["body"]["content"]:
+        para = elem.get("paragraph")
+        if not para:
+            continue
+        for run in para.get("elements", []):
+            ts = run.get("textRun", {}).get("textStyle", {})
+            wff = ts.get("weightedFontFamily", {})
+            actual = wff.get("fontFamily", "")
+            if actual and actual != expected:
+                raise RuntimeError(
+                    f"Font verification failed: expected '{expected}', "
+                    f"got '{actual}'. Check Google Fonts availability."
+                )
+    print(f"Font OK: all runs use '{expected}'")
+
+verify_font(docs_svc, doc_id)
+```
+
+**Do not skip this step.** If verification fails, the document will render in Arial.
 
 ### Step 4: Apply paragraph and text styles
 
@@ -216,5 +252,5 @@ Since Google Docs doesn't support code blocks natively:
 - **Bold on titles and H1/H2 only** — body text is never bold
 - **No white text** — even the brightest level is the phosphor color, not white
 - **Strip markdown formatting** — remove `#`, `**`, ``` fences, `|` pipes before inserting
-- **variant parameter** — when the user specifies C/O/G, swap the entire color palette accordingly
+- **variant parameter** — when the user specifies C/A/G, swap the entire color palette accordingly
 - **This is NOT Tufte Classic** — Tufte Classic has white background and near-black text. CRT inverts this.
