@@ -4,26 +4,26 @@ These instructions apply automatically to anyone using Claude Code in this repos
 
 ## Tufte Google Docs Publishing
 
+The `publish_markdown_tufte` MCP tool handles all Tufte-style publishing. **Never generate standalone Python publishing scripts.**
+
 When the user says "publish to Google Docs in Tufte style":
 
-1. **Read the skill definition FIRST:**
-   - Classic (light): `.claude/skills/gdocs-tufte-classic/SKILL.md` (in this repo)
-   - CRT (dark): `.claude/skills/gdocs-tufte-crt/SKILL.md` (in this repo)
-2. Write a Python publishing script following the pipeline documented in the skill
-3. Run via: `uv run --project . python3 <script>` (from this repo root)
-4. **MANDATORY:** Convert all ASCII art/box-drawing diagrams to SVG images (render via `rsvg-convert`)
-5. Font is ALWAYS JetBrains Mono 400 — never serif, never EB Garamond
-6. **MANDATORY:** Verify font applied correctly after formatting (see Font Verification in the skill)
-7. Use Python + Google Docs API directly — NEVER use MCP tools for this
-8. For CRT variant, read the CRT skill; default to Classic if no variant specified
+1. Read the markdown source (from file or user-provided content)
+2. Call the `publish_markdown_tufte` MCP tool with:
+   - `markdown_content`: the raw markdown text
+   - `title`: document title
+   - `style`: `"classic"` (default), `"crt"`, `"crt-a"`, or `"crt-g"`
+   - `doc_id` (optional): update an existing document
+3. Return the Google Docs link from the response
 
-### Credential Auto-Discovery
+The tool wraps a Python publishing script (`gdocs/tufte_publisher.py`) that uses the Google Docs API directly — not piecemeal MCP tool calls. The script lives here in the MCP project. NEVER generate publishing scripts in client projects.
 
-Publishing scripts locate OAuth credentials automatically:
-- Default: first `*.json` file in `~/.google_workspace_mcp/credentials/`
-- Override: set `WORKSPACE_MCP_CREDENTIALS_DIR` environment variable
-- Credentials are created by running the MCP server and completing the OAuth flow
+The 9-phase pipeline: markdown import, page setup, heading styles, font formatting (JetBrains Mono 400 with verification), code blocks, table styling, ASCII art → SVG → PNG images, and pageless mode.
 
-### Font: JetBrains Mono
+**Caching:** Title→doc_id is cached (re-publishing updates in place). Images cached by SHA-256 hash. Cache dir: `~/.google_workspace_mcp/cache/tufte/`
 
-JetBrains Mono is hosted on Google Fonts and works in Google Docs via the API with no local installation. The API silently falls back to Arial if the font name is wrong, so every publishing script must include the `verify_font()` check after applying fonts. If verification fails, stop — do not produce a document in Arial.
+### Style reference
+
+- **Classic** — white background, near-black `#1A1A1A` text, landscape 792x612pt, 54pt margins
+- **CRT** — near-black `#010101` background, phosphor-colored text (Cyan/Amber/Green), wide 820x1100pt, 0pt side margins
+- Font is ALWAYS JetBrains Mono 400 — never serif, never EB Garamond

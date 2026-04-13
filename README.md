@@ -8,7 +8,7 @@
 
 **Google Workspace control through natural language** — extended with document design systems, SVG rendering, git versioning, and programmatic publishing.
 
-Built on [taylorwilsdon/google_workspace_mcp](https://github.com/taylorwilsdon/google_workspace_mcp). Base: 80+ CRUD tools for Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Tasks, Chat, Apps Script, Search. This fork adds the advanced document intelligence and publishing features below.
+Built on [taylorwilsdon/google_workspace_mcp](https://github.com/taylorwilsdon/google_workspace_mcp). Base: CRUD tools for Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Tasks, Chat, Apps Script, Search. This fork extends it to 135+ tools with advanced document intelligence, publishing, versioning, and formatting features.
 
 [What's New](#-whats-new-in-this-fork) • [Quick Start](#-quick-start) • [Credentials](#-how-credentials-work) • [Tufte Docs](#-tufte-styled-google-docs) • [Tools Reference](#-tools-reference)
 
@@ -18,9 +18,9 @@ Built on [taylorwilsdon/google_workspace_mcp](https://github.com/taylorwilsdon/g
 
 ## 🚀 What's New in This Fork
 
-### Tufte Publishing System (Claude Code Skills)
+### Tufte Publishing System (MCP Tool + Claude Code Skills)
 
-Two complete design systems for publishing Google Docs with Edward Tufte's principles — say *"publish in Tufte style"* in Claude Code and get a formatted document via the Docs API. No manual formatting.
+Two complete design systems for publishing Google Docs with Edward Tufte's principles. The `publish_markdown_tufte` MCP tool runs the full 9-phase pipeline server-side — hand it markdown, get back a formatted Google Doc. No generated scripts, no boilerplate.
 
 | | **Classic** (light) | **CRT** (dark) |
 |---|---|---|
@@ -29,6 +29,7 @@ Two complete design systems for publishing Google Docs with Edward Tufte's princ
 | Pipeline | 9-phase: markdown import, page setup, headings, fonts, code blocks, tables, images, pageless | Same core pipeline with CRT color hierarchy |
 | Diagrams | ASCII art auto-converted to SVG, rendered as high-res PNG | Same |
 | Font verification | Reads doc back to confirm JetBrains Mono applied (API silently falls back to Arial) | Same |
+| Caching | Title-to-doc-id (re-publish updates in place) + SHA-256 image hash (skip re-uploads) | Same |
 
 ### Advanced Docs Tools
 
@@ -71,7 +72,7 @@ One-click install: creates Python venv, installs dependencies, sets up `workspac
 
 ### One-Click Install (Claude Desktop)
 
-1. Download `google_workspace_mcp.dxt` from [Releases](https://github.com/taylorwilsdon/google_workspace_mcp/releases)
+1. Download `google_workspace_mcp.dxt` from [Releases](https://github.com/jmpnop/google-workspace-mcp/releases)
 2. Double-click → Claude Desktop installs automatically
 3. Add your Google OAuth credentials in Settings → Extensions
 
@@ -148,21 +149,38 @@ cred_path = sorted(Path(cred_dir).glob("*.json"))[0]  # first user
 
 ## 🎨 Tufte-Styled Google Docs
 
-Three Claude Code skills ship in `.claude/skills/` (auto-installed by the .pkg):
+### MCP Tool (Recommended)
+
+The `publish_markdown_tufte` tool runs the full pipeline server-side. Any MCP client can call it:
+
+```
+publish_markdown_tufte(
+    markdown_content="# My Doc\n\nHello world",
+    title="My Document",
+    style="classic",    # or "crt", "crt-a", "crt-g"
+    doc_id=""           # optional: update existing doc
+)
+```
+
+Returns JSON with `doc_id`, `url`, `title`, `style`, and `cached` fields. Re-publishing the same title updates the existing doc in place (cached by title). Uploaded images are cached by SHA-256 hash.
+
+Cache location: `~/.google_workspace_mcp/cache/tufte/`
+
+### Claude Code Skills
+
+Three companion skills are available for Claude Code (install to `~/.claude/skills/`):
 
 | Skill | Purpose |
 |---|---|
-| `gdocs-tufte` | One-page quick guide — shows both styles, helps you choose |
-| `gdocs-tufte-classic` | Full 9-phase pipeline spec for Classic (light, 450+ lines) |
-| `gdocs-tufte-crt` | Full pipeline spec for CRT (dark, 250+ lines) |
+| `gdocs-tufte` | Quick guide — shows both styles, helps you choose |
+| `gdocs-tufte-classic` | Classic style reference and usage instructions |
+| `gdocs-tufte-crt` | CRT style reference with color variant details |
 
-### Usage
+All skills call the `publish_markdown_tufte` MCP tool — no scripts are generated.
 
 In Claude Code, say:
 - **"publish to Google Docs in Tufte style"** — Classic (white background, near-black ink)
 - **"publish in Tufte CRT"** or **"publish in CRT-A"** — CRT (dark, Cyan/Amber/Green variant)
-
-Claude reads the skill, writes a Python publishing script, runs it, and returns the Google Docs link. The script handles markdown import, page setup, heading hierarchy, font application, code block styling, table formatting, SVG diagram rendering, and pageless mode — all via the Docs API.
 
 ### CRT Color Variants
 
@@ -178,7 +196,7 @@ Claude reads the skill, writes a Python publishing script, runs it, and returns 
 
 ## 🛠 Tools Reference
 
-### Gmail (11 tools)
+### Gmail (15 tools)
 
 | Tool | Tier | Description |
 |------|------|-------------|
@@ -196,7 +214,7 @@ Claude reads the skill, writes a Python publishing script, runs it, and returns 
 
 **Also includes:** `get_gmail_attachment_content`, `list_gmail_filters`, `create_gmail_filter`, `delete_gmail_filter`
 
-### Google Drive (7 tools)
+### Google Drive (18 tools)
 
 | Tool | Tier | Description |
 |------|------|-------------|
@@ -206,12 +224,20 @@ Claude reads the skill, writes a Python publishing script, runs it, and returns 
 | `create_drive_folder` | Core | Create empty folders in Drive or shared drives |
 | `list_drive_items` | Extended | List folder contents with shared drive support |
 | `update_drive_file` | Extended | Update metadata, move between folders, star, trash |
+| `copy_drive_file` | Extended | Copy files with optional rename and destination |
+| `share_drive_file` | Extended | Share a file with a user or group |
+| `get_drive_file_download_url` | Extended | Generate download URL for a file |
+| `get_drive_shareable_link` | Extended | Get shareable link for a file |
+| `import_to_google_doc` | Extended | Import .docx/.html/.md to native Google Doc |
 | `get_drive_file_permissions` | Complete | Check sharing status and permissions |
 | `check_drive_file_public_access` | Complete | Verify public link sharing for Docs image insertion |
+| `set_drive_file_permissions` | Complete | Set file permissions (reader, writer, owner) |
+| `batch_share_drive_file` | Complete | Share a file with multiple users at once |
+| `update_drive_permission` | Complete | Modify existing permission role |
+| `remove_drive_permission` | Complete | Revoke access from a user or group |
+| `transfer_drive_ownership` | Complete | Transfer file ownership to another user |
 
-**Also includes:** `get_drive_file_download_url` for generating download URLs
-
-### Google Calendar (5 tools)
+### Google Calendar (6 tools)
 
 | Tool | Tier | Description |
 |------|------|-------------|
@@ -220,10 +246,11 @@ Claude reads the skill, writes a Python publishing script, runs it, and returns 
 | `create_event` | Core | Create events with attendees, reminders, Google Meet, attachments |
 | `modify_event` | Core | Update any event property including conferencing |
 | `delete_event` | Extended | Remove events |
+| `query_freebusy` | Extended | Check free/busy status for calendars in a time range |
 
 **Event features:** Timezone support, transparency (busy/free), visibility settings, up to 5 custom reminders
 
-### Google Docs (17 tools)
+### Google Docs (27 tools)
 
 | Tool | Tier | Description |
 |------|------|-------------|
@@ -236,6 +263,8 @@ Claude reads the skill, writes a Python publishing script, runs it, and returns 
 | `insert_doc_elements` | Extended | Add tables, lists, page breaks |
 | `export_doc_to_pdf` | Extended | Export to PDF and save to Drive |
 | `insert_doc_svg` | Extended | Insert SVG as PNG (rsvg-convert/cairosvg, auto viewBox sizing) |
+| `get_doc_as_markdown` | Extended | Export as clean Markdown with inline or appendix comment integration |
+| `update_paragraph_style` | Extended | Semantic formatting: heading levels, alignment, spacing, nested lists |
 | `insert_doc_image` | Complete | Insert images from Drive or URLs |
 | `update_doc_headers_footers` | Complete | Modify headers/footers |
 | `batch_update_doc` | Complete | Execute multiple operations atomically |
@@ -244,10 +273,14 @@ Claude reads the skill, writes a Python publishing script, runs it, and returns 
 | `inspect_doc_structure` | Complete | Analyze document structure for safe insertion points |
 | `create_table_with_data` | Complete | Create and populate tables in one operation |
 | `debug_table_structure` | Complete | Debug table cell positions and content |
+| `publish_markdown_tufte` | Complete | Publish markdown as a Tufte-styled Google Doc (9-phase pipeline, caching) |
+| `git_snapshot_doc` | Complete | Snapshot a Doc as Markdown into a local git repo |
+| `git_doc_history` | Complete | View commit log for a snapshotted document |
+| `git_doc_diff` | Complete | Unified diff between any two versions of a document |
 
 **Comments:** `read_document_comments`, `create_document_comment`, `reply_to_document_comment`, `resolve_document_comment`
 
-### Google Sheets (13 tools)
+### Google Sheets (14 tools)
 
 | Tool | Tier | Description |
 |------|------|-------------|
@@ -264,7 +297,7 @@ Claude reads the skill, writes a Python publishing script, runs it, and returns 
 
 **Comments:** `read_spreadsheet_comments`, `create_spreadsheet_comment`, `reply_to_spreadsheet_comment`, `resolve_spreadsheet_comment`
 
-### Google Slides (9 tools)
+### Google Slides (9 tools — 5 core + 4 comments)
 
 | Tool | Tier | Description |
 |------|------|-------------|
@@ -304,7 +337,7 @@ Claude reads the skill, writes a Python publishing script, runs it, and returns 
 | `move_task` | Complete | Reposition or move between lists |
 | `clear_completed_tasks` | Complete | Hide completed tasks |
 
-### Google Apps Script (11 tools)
+### Google Apps Script (17 tools)
 
 | Tool | Tier | Description |
 |------|------|-------------|
@@ -318,13 +351,17 @@ Claude reads the skill, writes a Python publishing script, runs it, and returns 
 | `list_deployments` | Extended | List all project deployments |
 | `update_deployment` | Extended | Update deployment configuration |
 | `delete_deployment` | Extended | Remove deployment |
+| `delete_script_project` | Extended | Delete a script project |
 | `list_script_processes` | Extended | View recent executions and status |
+| `get_script_metrics` | Extended | Get execution metrics and quotas |
+| `generate_trigger_code` | Extended | Generate Apps Script trigger code |
+| `create_version` | Complete | Create immutable script version |
+| `get_version` | Complete | Get version details |
+| `list_versions` | Complete | List all script versions |
 
 **Enables:** Cross-app automation, persistent workflows, custom business logic execution, script development and debugging
 
-**Note:** Trigger management is not currently supported via MCP tools.
-
-### Google Contacts (11 tools)
+### Google Contacts (15 tools)
 
 | Tool | Tier | Description |
 |------|------|-------------|
@@ -371,9 +408,9 @@ Choose a tier based on your needs:
 
 | Tier | Tools | Use Case |
 |------|-------|----------|
-| **Core** | ~30 | Essential operations: search, read, create, send |
-| **Extended** | ~50 | Core + management: labels, folders, batch ops |
-| **Complete** | ~80 | Full API: comments, headers, admin functions |
+| **Core** | ~40 | Essential operations: search, read, create, send |
+| **Extended** | ~80 | Core + management: labels, folders, batch ops |
+| **Complete** | 135+ | Full API: comments, headers, admin functions |
 
 ```bash
 uvx workspace-mcp --tool-tier core      # Start minimal
@@ -566,7 +603,7 @@ google_workspace_mcp/
 ├── core/                 # MCP server, tool registry, utilities
 ├── gcalendar/           # Calendar tools
 ├── gchat/               # Chat tools
-├── gdocs/               # Docs tools + managers (tables, headers, batch)
+├── gdocs/               # Docs tools + managers + Tufte publisher
 ├── gdrive/              # Drive tools + helpers
 ├── gforms/              # Forms tools
 ├── gmail/               # Gmail tools
@@ -605,8 +642,8 @@ async def get_doc_content(drive_service, docs_service, ...):
 ## 🧪 Development
 
 ```bash
-git clone https://github.com/taylorwilsdon/google_workspace_mcp.git
-cd google_workspace_mcp
+git clone https://github.com/jmpnop/google-workspace-mcp.git
+cd google-workspace-mcp
 
 # Install with dev dependencies
 uv sync --group dev
@@ -631,6 +668,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**[Documentation](https://workspacemcp.com)** • **[Issues](https://github.com/taylorwilsdon/google_workspace_mcp/issues)** • **[PyPI](https://pypi.org/project/workspace-mcp/)**
+**[Documentation](https://workspacemcp.com)** • **[Issues](https://github.com/jmpnop/google-workspace-mcp/issues)** • **[PyPI](https://pypi.org/project/workspace-mcp/)**
 
 </div>
