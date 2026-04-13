@@ -1,16 +1,69 @@
 <div align="center">
 
-# Google Workspace MCP Server
+# Google Workspace MCP Server — Enhanced Edition
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyPI](https://img.shields.io/pypi/v/workspace-mcp.svg)](https://pypi.org/project/workspace-mcp/)
 
-**Complete Google Workspace control through natural language.** Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Tasks, Chat, Apps Script, and Custom Search—all via MCP.
+**Google Workspace control through natural language** — extended with document design systems, SVG rendering, git versioning, and programmatic publishing.
 
-[Quick Start](#-quick-start) • [Tufte Docs](#-tufte-styled-google-docs) • [Tools Reference](#-tools-reference) • [Configuration](#-configuration) • [OAuth Setup](#-oauth-setup)
+Built on [taylorwilsdon/google_workspace_mcp](https://github.com/taylorwilsdon/google_workspace_mcp). Base: 80+ CRUD tools for Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Tasks, Chat, Apps Script, Search. This fork adds the advanced document intelligence and publishing features below.
+
+[What's New](#-whats-new-in-this-fork) • [Tufte Docs](#-tufte-styled-google-docs) • [Quick Start](#-quick-start) • [Tools Reference](#-tools-reference) • [OAuth Setup](#-oauth-setup)
 
 </div>
+
+---
+
+## 🚀 What's New in This Fork
+
+### Tufte Publishing System (Claude Code Skills)
+
+Two complete design systems for publishing Google Docs with Edward Tufte's principles — say *"publish in Tufte style"* in Claude Code and get a formatted document via the Docs API. No manual formatting.
+
+| | **Classic** (light) | **CRT** (dark) |
+|---|---|---|
+| Background | White | Near-black `#010101` |
+| Text | Near-black `#1A1A1A` JetBrains Mono | Phosphor glow (Cyan/Amber/Green) |
+| Pipeline | 9-phase: markdown import, page setup, headings, fonts, code blocks, tables, images, pageless | Same core pipeline with CRT color hierarchy |
+| Diagrams | ASCII art auto-converted to SVG, rendered as high-res PNG | Same |
+| Font verification | Reads doc back to confirm JetBrains Mono applied (API silently falls back to Arial) | Same |
+
+### Advanced Docs Tools
+
+| Tool | What it does |
+|---|---|
+| `insert_doc_svg` | SVG markup to high-res PNG — renders via rsvg-convert, uploads to Drive, inserts inline with auto aspect ratio and optional caption |
+| `set_doc_pageless` | Switch document to pageless (continuous scroll) mode via Docs API |
+| `insert_table_of_contents` | Auto-generated TOC from headings (uses bound Apps Script to work around API limitation) |
+| `batch_update_doc` | Atomic multi-operation updates with validation — insert, format, replace, add tables/images/page breaks in one call |
+| `create_table_with_data` | Create and populate tables atomically — bold headers, cell-by-cell population with index refresh |
+| `inspect_doc_structure` | Analyze document topology — elements, tables, safe insertion indices for batch operations |
+| `debug_table_structure` | Exact cell positions, dimensions, content — enables reliable table manipulation |
+| `update_paragraph_style` | Semantic formatting: heading levels, alignment, spacing, nested lists |
+| `get_doc_as_markdown` | Export as clean Markdown with inline or appendix comment integration |
+
+### Document Git Versioning
+
+| Tool | What it does |
+|---|---|
+| `git_snapshot_doc` | Snapshot a Google Doc as Markdown into a local git repo (`~/.google_workspace_mcp/doc_versions/{doc_id}/`). Only commits when content changes. |
+| `git_doc_history` | View commit log for any snapshotted document |
+| `git_doc_diff` | Unified diff between any two versions of a document |
+
+### Sheets Formatting
+
+| Tool | What it does |
+|---|---|
+| `format_sheet_range` | Colors, number formats, text wrapping, alignment, bold/italic, font size |
+| `add_conditional_formatting` | Rule-based: NUMBER_GREATER, TEXT_CONTAINS, DATE_BEFORE, CUSTOM_FORMULA, gradient scales |
+| `update_conditional_formatting` | Modify existing rules by index |
+| `delete_conditional_formatting` | Remove rules by index |
+
+### macOS .pkg Installer
+
+One-click install: creates Python venv, installs dependencies, sets up `workspace-mcp` command, Claude Code skills, credentials directory, and librsvg. Uninstall: `sudo bash /usr/local/share/workspace-mcp/uninstall.sh`
 
 ---
 
@@ -24,7 +77,7 @@
 
 ### macOS Installer (.pkg)
 
-1. Download `workspace-mcp-1.13.0.pkg` from [Releases](https://github.com/taylorwilsdon/google_workspace_mcp/releases)
+1. Download `workspace-mcp-*.pkg` from [Releases](https://github.com/jmpnop/google-workspace-mcp/releases)
 2. Double-click to install — sets up `workspace-mcp` command, Python venv, Claude Code skills, and credentials directory
 3. Set your Google OAuth credentials and run `workspace-mcp`
 
@@ -55,27 +108,31 @@ export OAUTHLIB_INSECURE_TRANSPORT=1  # Development only
 
 ## 🎨 Tufte-Styled Google Docs
 
-Publish publication-quality Google Docs using Edward Tufte's design principles — JetBrains Mono typography, minimal decoration, high data-ink ratio. Included as Claude Code skills.
+Three Claude Code skills ship in `.claude/skills/` (auto-installed by the .pkg):
 
-### Two Styles
+| Skill | Purpose |
+|---|---|
+| `gdocs-tufte` | One-page quick guide — shows both styles, helps you choose |
+| `gdocs-tufte-classic` | Full 9-phase pipeline spec for Classic (light, 450+ lines) |
+| `gdocs-tufte-crt` | Full pipeline spec for CRT (dark, 250+ lines) |
 
-| | **Classic** (light) | **CRT** (dark) |
-|---|---|---|
-| Background | White | Near-black `#010101` |
-| Text | Near-black `#1A1A1A` | Phosphor color (Cyan/Amber/Green) |
-| Best for | Reports, specs, documentation | Dashboards, terminal-style docs |
-
-### Usage with Claude Code
-
-The skills are installed automatically by the .pkg installer, or available in `.claude/skills/` when cloning the repo.
+### Usage
 
 In Claude Code, say:
-- **"publish to Google Docs in Tufte style"** — Classic (light background)
-- **"publish in Tufte CRT"** or **"publish in CRT-A"** — CRT (dark, with Cyan/Amber/Green variant)
+- **"publish to Google Docs in Tufte style"** — Classic (white background, near-black ink)
+- **"publish in Tufte CRT"** or **"publish in CRT-A"** — CRT (dark, Cyan/Amber/Green variant)
 
-Claude writes and runs a Python script that creates/formats the doc via the Docs API — no manual formatting needed.
+Claude reads the skill, writes a Python publishing script, runs it, and returns the Google Docs link. The script handles markdown import, page setup, heading hierarchy, font application, code block styling, table formatting, SVG diagram rendering, and pageless mode — all via the Docs API.
 
-**Requirements:** OAuth credentials (from the standard setup above) and `brew install librsvg` (for SVG diagram rendering in Classic).
+### CRT Color Variants
+
+| Variant | Invoke with | Look |
+|---|---|---|
+| Cyan | "CRT" or "CRT-C" | Cyan phosphor on black |
+| Amber | "CRT-A" | Amber phosphor on black |
+| Green | "CRT-G" | Green phosphor on black |
+
+**Requirements:** OAuth credentials (from setup below) and `brew install librsvg` (for SVG diagram rendering in Classic).
 
 ---
 
