@@ -10,7 +10,7 @@
 
 Built on [taylorwilsdon/google_workspace_mcp](https://github.com/taylorwilsdon/google_workspace_mcp). Base: 80+ CRUD tools for Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Tasks, Chat, Apps Script, Search. This fork adds the advanced document intelligence and publishing features below.
 
-[What's New](#-whats-new-in-this-fork) • [Tufte Docs](#-tufte-styled-google-docs) • [Quick Start](#-quick-start) • [Tools Reference](#-tools-reference) • [OAuth Setup](#-oauth-setup)
+[What's New](#-whats-new-in-this-fork) • [Quick Start](#-quick-start) • [Credentials](#-how-credentials-work) • [Tufte Docs](#-tufte-styled-google-docs) • [Tools Reference](#-tools-reference)
 
 </div>
 
@@ -96,13 +96,53 @@ uvx workspace-mcp --tools gmail drive calendar
 uvx workspace-mcp --tool-tier core
 ```
 
-### Environment Variables
+### Environment Setup
+
+```bash
+cp .env.example .env
+# Edit .env with your Google OAuth credentials (see OAuth Setup below)
+```
+
+Or export directly:
 
 ```bash
 export GOOGLE_OAUTH_CLIENT_ID="your-client-id"
 export GOOGLE_OAUTH_CLIENT_SECRET="your-client-secret"
-export OAUTHLIB_INSECURE_TRANSPORT=1  # Development only
 ```
+
+---
+
+## 🔑 How Credentials Work
+
+There are **two kinds of credentials** in this project — understanding the difference avoids confusion:
+
+### 1. App Credentials (you create once)
+
+Your **OAuth Client ID and Secret** from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). These identify your app to Google. Set them in `.env` or as environment variables. They never change unless you rotate them.
+
+### 2. User Tokens (created automatically)
+
+When you first use a tool, the server opens a browser for Google login. After you authorize, tokens are saved to:
+
+```
+~/.google_workspace_mcp/credentials/you@gmail.com.json
+```
+
+This file contains your access token, refresh token, and granted scopes. It's **created automatically** — you never edit it. Tokens refresh transparently when they expire.
+
+Override the storage location with `WORKSPACE_MCP_CREDENTIALS_DIR`.
+
+### How Tufte Scripts Find Credentials
+
+The Tufte publishing skills reuse the **same token files** — no separate auth flow. After you've authenticated with the MCP server once, the Tufte scripts auto-discover the first `*.json` in the credentials directory:
+
+```python
+cred_dir = os.environ.get("WORKSPACE_MCP_CREDENTIALS_DIR",
+           "~/.google_workspace_mcp/credentials")
+cred_path = sorted(Path(cred_dir).glob("*.json"))[0]  # first user
+```
+
+**TL;DR:** Set up OAuth once → MCP server and Tufte scripts both work.
 
 ---
 
@@ -350,6 +390,14 @@ uvx workspace-mcp --tools gmail drive --tool-tier extended
 
 ## ⚙ Configuration
 
+Copy the template and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+For advanced OAuth 2.1 / multi-server setups, see `.env.oauth21`.
+
 ### Required
 
 | Variable | Description |
@@ -362,15 +410,22 @@ uvx workspace-mcp --tools gmail drive --tool-tier extended
 | Variable | Description |
 |----------|-------------|
 | `USER_GOOGLE_EMAIL` | Default email for single-user mode |
+| `WORKSPACE_MCP_CREDENTIALS_DIR` | Token storage path (default: `~/.google_workspace_mcp/credentials/`) |
+| `WORKSPACE_MCP_PORT` | Server port (default: `8000`) |
+| `OAUTHLIB_INSECURE_TRANSPORT` | Allow HTTP OAuth redirects (set `1` for localhost dev) |
 | `GOOGLE_PSE_API_KEY` | Custom Search API key |
 | `GOOGLE_PSE_ENGINE_ID` | Programmable Search Engine ID |
+
+### Advanced
+
+| Variable | Description |
+|----------|-------------|
 | `MCP_ENABLE_OAUTH21` | Enable OAuth 2.1 multi-user support |
 | `WORKSPACE_MCP_STATELESS_MODE` | No file writes (container-friendly) |
 | `EXTERNAL_OAUTH21_PROVIDER` | External OAuth flow with bearer tokens |
 | `WORKSPACE_MCP_BASE_URI` | Server base URL (default: `http://localhost`) |
-| `WORKSPACE_MCP_PORT` | Server port (default: `8000`) |
 | `WORKSPACE_EXTERNAL_URL` | External URL for reverse proxy setups |
-| `GOOGLE_MCP_CREDENTIALS_DIR` | Custom credentials storage path |
+| `GOOGLE_MCP_CREDENTIALS_DIR` | Legacy alias for `WORKSPACE_MCP_CREDENTIALS_DIR` |
 
 ---
 
