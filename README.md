@@ -505,23 +505,23 @@ When you first call a tool:
 
 ## 🚀 Transport Modes
 
-### Stdio (Default)
+### HTTP (Streamable) — Default
 
-Best for Claude Desktop and local MCP clients:
+The default transport. Runs a persistent HTTP server that any MCP client can connect to:
 
 ```bash
 uvx workspace-mcp
 ```
 
-### HTTP (Streamable)
+Access at `http://localhost:8000/mcp`
 
-For web interfaces, debugging, or multi-client setups:
+### Stdio
+
+For Claude Desktop and clients that manage the server process lifecycle:
 
 ```bash
-uvx workspace-mcp --transport streamable-http
+uvx workspace-mcp --transport stdio
 ```
-
-Access at `http://localhost:8000/mcp/`
 
 ### Docker
 
@@ -589,8 +589,23 @@ docker run -p 8000:8000 \
 
 ### Claude Code
 
+Via CLI:
+
 ```bash
 claude mcp add --transport http workspace-mcp http://localhost:8000/mcp
+```
+
+Or add to `~/.claude/.mcp.json` for user-level config:
+
+```json
+{
+  "mcpServers": {
+    "google": {
+      "type": "http",
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}
 ```
 
 ---

@@ -38,6 +38,10 @@ def _retry_api(fn, label: str = "API call", retries: int = 5):
     for attempt in range(retries):
         try:
             return fn()
+        except (BrokenPipeError, ConnectionError, ConnectionResetError) as exc:
+            wait = 5 * (attempt + 1)
+            logger.warning(f"[tufte] {label}: connection error ({exc}), retrying in {wait}s (attempt {attempt + 1})")
+            time.sleep(wait)
         except Exception as exc:
             msg = str(exc)
             if "429" in msg or "RATE_LIMIT" in msg or "rateLimitExceeded" in msg:
@@ -759,17 +763,15 @@ async def _phase6_images(
                 "name": f"tufte_diagram_{art_hash[:12]}.png",
                 "mimeType": "image/png",
             }
-            media = MediaIoBaseUpload(
-                io.BytesIO(png_bytes),
-                mimetype="image/png",
-                resumable=False,
-            )
+            def _upload_image():
+                buf = io.BytesIO(png_bytes)
+                media = MediaIoBaseUpload(buf, mimetype="image/png", resumable=True)
+                return drive_svc.files().create(
+                    body=file_metadata, media_body=media, fields="id"
+                ).execute()
+
             created_file = await asyncio.to_thread(
-                _retry_api,
-                lambda: drive_svc.files()
-                .create(body=file_metadata, media_body=media, fields="id")
-                .execute(),
-                "Phase 6 upload image",
+                _retry_api, _upload_image, "Phase 6 upload image",
             )
             file_id = created_file["id"]
 
@@ -799,6 +801,13 @@ async def _phase6_images(
         if insert_index is None:
             logger.warning(f"[tufte] Phase 6: Could not find heading '{preceding_heading}' in doc")
             continue
+
+        # Clamp to valid insertion range: Google Docs API rejects
+        # insertText at body endIndex (the last valid index is endIndex - 1).
+        # This happens when the heading is the last structural element.
+        doc_end = _get_doc_length(doc)
+        if insert_index >= doc_end:
+            insert_index = doc_end - 1
 
         image_uri = f"https://drive.google.com/uc?export=view&id={file_id}"
         width_pt = min(style.page_width_pt - style.margin_left_pt - style.margin_right_pt - 20, 700)

@@ -141,8 +141,8 @@ def main():
     parser.add_argument(
         "--transport",
         choices=["stdio", "streamable-http"],
-        default="stdio",
-        help="Transport mode: stdio (default) or streamable-http",
+        default="streamable-http",
+        help="Transport mode: streamable-http (default) or stdio",
     )
     parser.add_argument(
         "--cli",
