@@ -22,6 +22,14 @@
 2. Double-click → Claude Desktop installs automatically
 3. Add your Google OAuth credentials in Settings → Extensions
 
+### macOS Installer (.pkg)
+
+1. Download `workspace-mcp-1.13.0.pkg` from [Releases](https://github.com/taylorwilsdon/google_workspace_mcp/releases)
+2. Double-click to install — sets up `workspace-mcp` command, Python venv, Claude Code skills, and credentials directory
+3. Set your Google OAuth credentials and run `workspace-mcp`
+
+To build the .pkg from source: `./installer/build-pkg.sh`
+
 ### CLI Install
 
 ```bash
@@ -453,6 +461,32 @@ async def search_gmail_messages(service, user_google_email: str, query: str):
 async def get_doc_content(drive_service, docs_service, ...):
     ...
 ```
+
+---
+
+## 🎨 Tufte-Styled Google Docs
+
+This project includes Claude Code skills for publishing publication-quality Google Docs using Edward Tufte's design principles — JetBrains Mono typography, minimal decoration, high data-ink ratio.
+
+### Two Styles
+
+| | **Classic** (light) | **CRT** (dark) |
+|---|---|---|
+| Background | White | Near-black `#010101` |
+| Text | Near-black `#1A1A1A` | Phosphor color (Cyan/Amber/Green) |
+| Best for | Reports, specs, documentation | Dashboards, terminal-style docs |
+
+### Usage with Claude Code
+
+The skills are installed automatically by the .pkg installer, or available in `.claude/skills/` when cloning the repo.
+
+In Claude Code, say:
+- **"publish to Google Docs in Tufte style"** — Classic (light background)
+- **"publish in Tufte CRT"** or **"publish in CRT-A"** — CRT (dark, with Cyan/Amber/Green variant)
+
+Claude writes and runs a Python script that creates/formats the doc via the Docs API — no manual formatting needed.
+
+**Requirements:** OAuth credentials (from the standard setup above) and `brew install librsvg` (for SVG diagram rendering in Classic).
 
 ---
 

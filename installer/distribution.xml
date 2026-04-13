@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Google Workspace MCP Server</title>
+    <organization>com.workspace-mcp</organization>
+    <domains enable_localSystem="true"/>
+    <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
+
+    <!-- Require macOS 13+ -->
+    <os-version min="13.0"/>
+
+    <welcome    file="welcome.html"/>
+    <license    file="LICENSE"/>
+    <conclusion file="conclusion.html"/>
+
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.workspace-mcp.pkg"/>
+        </line>
+    </choices-outline>
+
+    <choice id="default"/>
+    <choice id="com.workspace-mcp.pkg" visible="false">
+        <pkg-ref id="com.workspace-mcp.pkg"/>
+    </choice>
+
+    <pkg-ref id="com.workspace-mcp.pkg"
+             version="1.13.0"
+             onConclusion="none">workspace-mcp-component.pkg</pkg-ref>
+</installer-gui-script>

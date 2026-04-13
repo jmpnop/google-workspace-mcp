@@ -1,0 +1,125 @@
+#!/bin/bash
+# postinstall — runs as root after payload is written to disk
+set -euo pipefail
+
+INSTALL_DIR="/usr/local/lib/workspace-mcp"
+BIN_LINK="/usr/local/bin/workspace-mcp"
+SKILLS_SRC="/usr/local/share/workspace-mcp/skills"
+PKG_VERSION="1.13.0"
+
+log() { echo "[workspace-mcp] $*"; }
+
+# ── 1. Ensure /usr/local/bin exists ──────────────────────────────────────────
+mkdir -p /usr/local/bin
+
+# ── 2. Detect or install Python 3.10+ ────────────────────────────────────────
+PYTHON=""
+for candidate in python3.12 python3.11 python3.10 python3; do
+    if command -v "$candidate" &>/dev/null; then
+        ver=$("$candidate" -c 'import sys; print(sys.version_info.major * 100 + sys.version_info.minor)')
+        if [ "$ver" -ge 310 ]; then
+            PYTHON="$(command -v "$candidate")"
+            break
+        fi
+    fi
+done
+
+if [ -z "$PYTHON" ]; then
+    log "ERROR: Python 3.10+ not found. Install Python from https://www.python.org/downloads/ and re-run."
+    exit 1
+fi
+log "Using Python: $PYTHON"
+
+# ── 3. Create virtual environment ────────────────────────────────────────────
+if [ -d "$INSTALL_DIR/venv" ]; then
+    log "Removing previous virtual environment..."
+    rm -rf "$INSTALL_DIR/venv"
+fi
+
+log "Creating virtual environment at $INSTALL_DIR/venv..."
+"$PYTHON" -m venv "$INSTALL_DIR/venv"
+
+# ── 4. Install the package ───────────────────────────────────────────────────
+log "Installing workspace-mcp and dependencies..."
+"$INSTALL_DIR/venv/bin/pip" install --upgrade pip --quiet
+"$INSTALL_DIR/venv/bin/pip" install "$INSTALL_DIR/src" --quiet
+
+# ── 5. Create /usr/local/bin symlink ─────────────────────────────────────────
+cat > "$BIN_LINK" << 'WRAPPER'
+#!/bin/bash
+exec /usr/local/lib/workspace-mcp/venv/bin/workspace-mcp "$@"
+WRAPPER
+chmod 755 "$BIN_LINK"
+log "Installed command: $BIN_LINK"
+
+# ── 6. Install librsvg for Tufte SVG rendering (if Homebrew available) ───────
+if command -v brew &>/dev/null; then
+    if ! command -v rsvg-convert &>/dev/null; then
+        log "Installing librsvg (for Tufte SVG→PNG rendering)..."
+        # Run brew as the real user, not root
+        REAL_USER="${SUDO_USER:-$USER}"
+        su "$REAL_USER" -c 'brew install librsvg 2>/dev/null' || log "WARN: librsvg install failed — Tufte SVG rendering needs: brew install librsvg"
+    fi
+fi
+
+# ── 7. Set up per-user directories ───────────────────────────────────────────
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_HOME=$(eval echo "~$REAL_USER")
+
+# Credentials directory
+CRED_DIR="$REAL_HOME/.google_workspace_mcp/credentials"
+if [ ! -d "$CRED_DIR" ]; then
+    mkdir -p "$CRED_DIR"
+    chmod 700 "$REAL_HOME/.google_workspace_mcp"
+    chmod 700 "$CRED_DIR"
+    chown -R "$REAL_USER" "$REAL_HOME/.google_workspace_mcp"
+    log "Created credentials directory: $CRED_DIR"
+fi
+
+# ── 8. Install Claude Code skills for the user ──────────────────────────────
+CLAUDE_SKILLS_DIR="$REAL_HOME/.claude/skills"
+if [ -d "$REAL_HOME/.claude" ] || command -v claude &>/dev/null; then
+    mkdir -p "$CLAUDE_SKILLS_DIR"
+    for skill_dir in "$SKILLS_SRC"/*/; do
+        skill_name="$(basename "$skill_dir")"
+        target="$CLAUDE_SKILLS_DIR/$skill_name"
+        mkdir -p "$target"
+        cp -f "$skill_dir"* "$target/" 2>/dev/null || true
+    done
+    chown -R "$REAL_USER" "$CLAUDE_SKILLS_DIR"
+    log "Installed Claude Code skills to: $CLAUDE_SKILLS_DIR"
+else
+    log "Claude Code not detected — skills available at: $SKILLS_SRC"
+    log "To install later: cp -r $SKILLS_SRC/* ~/.claude/skills/"
+fi
+
+# ── 9. Create env template ───────────────────────────────────────────────────
+ENV_TEMPLATE="$REAL_HOME/.google_workspace_mcp/.env.example"
+if [ ! -f "$ENV_TEMPLATE" ]; then
+    cat > "$ENV_TEMPLATE" << 'ENV'
+# Google Workspace MCP — Environment Configuration
+# Copy this to .env and fill in your values
+
+GOOGLE_OAUTH_CLIENT_ID="your-google-client-id"
+GOOGLE_OAUTH_CLIENT_SECRET="your-google-client-secret"
+
+# Optional: default user email for single-user mode
+# USER_GOOGLE_EMAIL="you@example.com"
+
+# Development only — allow HTTP OAuth redirects
+# OAUTHLIB_INSECURE_TRANSPORT=1
+ENV
+    chown "$REAL_USER" "$ENV_TEMPLATE"
+    log "Created env template: $ENV_TEMPLATE"
+fi
+
+log "Installation complete (v${PKG_VERSION})"
+log ""
+log "Next steps:"
+log "  1. Set up Google OAuth credentials:"
+log "     export GOOGLE_OAUTH_CLIENT_ID='your-id'"
+log "     export GOOGLE_OAUTH_CLIENT_SECRET='your-secret'"
+log "  2. Run: workspace-mcp"
+log "  3. Complete the OAuth flow in your browser"
+log ""
+log "For Tufte-styled Google Docs, use Claude Code with the installed skills."

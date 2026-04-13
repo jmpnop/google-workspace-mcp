@@ -1,0 +1,30 @@
+#!/bin/bash
+# preinstall — sanity checks before installation
+set -euo pipefail
+
+log() { echo "[workspace-mcp] $*"; }
+
+# Check Python 3.10+
+PYTHON_OK=0
+for candidate in python3.12 python3.11 python3.10 python3; do
+    if command -v "$candidate" &>/dev/null; then
+        ver=$("$candidate" -c 'import sys; print(sys.version_info.major * 100 + sys.version_info.minor)')
+        if [ "$ver" -ge 310 ]; then
+            PYTHON_OK=1
+            log "Found Python: $("$candidate" --version)"
+            break
+        fi
+    fi
+done
+
+if [ "$PYTHON_OK" -eq 0 ]; then
+    log "WARNING: Python 3.10+ not found on this system."
+    log "Install Python from https://www.python.org/downloads/ before using workspace-mcp."
+fi
+
+# Check for previous installation
+if [ -d "/usr/local/lib/workspace-mcp" ]; then
+    log "Previous installation found — will be upgraded."
+fi
+
+exit 0
