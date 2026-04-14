@@ -11,8 +11,8 @@
     "url": "https://taylorwilsdon.com"
   },
   "homepage": "https://workspacemcp.com/",
-  "documentation": "https://github.com/taylorwilsdon/google_workspace_mcp",
-  "support": "https://github.com/taylorwilsdon/google_workspace_mcp/issues",
+  "documentation": "https://github.com/jmpnop/google-workspace-mcp",
+  "support": "https://github.com/jmpnop/google-workspace-mcp/issues",
   "server": {
     "type": "python",
     "entry_point": "main.py",
@@ -186,6 +186,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/taylorwilsdon/google_workspace_mcp"
+    "url": "https://github.com/jmpnop/google-workspace-mcp"
   }
 }

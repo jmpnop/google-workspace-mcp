@@ -46,11 +46,6 @@ for pkg_dir in auth core gmail gdrive gcalendar gdocs gsheets gchat gforms gslid
     fi
 done
 
-# Copy gdocs subdirectories (managers, etc.)
-if [ -d "$PROJECT_DIR/gdocs/managers" ]; then
-    cp -R "$PROJECT_DIR/gdocs/managers" "$SRC_DEST/gdocs/"
-fi
-
 # /usr/local/share/workspace-mcp — shared files
 SHARE_DEST="$PAYLOAD_DIR/usr/local/share/workspace-mcp"
 mkdir -p "$SHARE_DEST"

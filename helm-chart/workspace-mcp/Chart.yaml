@@ -3,7 +3,7 @@ name: workspace-mcp
 description: A Helm chart for Google Workspace MCP Server - Comprehensive Google Workspace integration for AI assistants
 type: application
 version: 0.1.0
-appVersion: "1.2.0"
+appVersion: "1.13.0"
 keywords:
   - mcp
   - google
@@ -13,7 +13,7 @@ keywords:
   - claude
 home: https://workspacemcp.com
 sources:
-  - https://github.com/taylorwilsdon/google_workspace_mcp
+  - https://github.com/jmpnop/google-workspace-mcp
 maintainers:
   - name: Taylor Wilsdon
     email: taylor@taylorwilsdon.com

@@ -52,4 +52,4 @@
    - OAuth callback URL: {{ if .Values.env.WORKSPACE_EXTERNAL_URL }}{{ .Values.env.WORKSPACE_EXTERNAL_URL }}{{ else }}{{ default "http://localhost" .Values.env.WORKSPACE_MCP_BASE_URI }}:{{ .Values.env.WORKSPACE_MCP_PORT }}{{ end }}/oauth2callback
 
 For more information about the Google Workspace MCP Server, visit:
-https://github.com/taylorwilsdon/google_workspace_mcp
+https://github.com/jmpnop/google-workspace-mcp
