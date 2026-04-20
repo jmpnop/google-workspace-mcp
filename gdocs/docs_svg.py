@@ -184,7 +184,7 @@ async def insert_doc_svg(
     logger.info(f"[insert_doc_svg] Set public permission on {file_id}")
 
     # Step 5: Build the image URL
-    image_uri = f"https://drive.google.com/uc?export=view&id={file_id}"
+    image_uri = f"https://lh3.googleusercontent.com/d/{file_id}=s0"
 
     # Step 6: Insert image into the document
     requests = [create_insert_image_request(index, image_uri, width_pts, height_pts)]

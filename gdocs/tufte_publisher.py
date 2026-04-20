@@ -326,10 +326,13 @@ async def _phase1_create_or_update(
             )
 
         # Upload new markdown content
+        update_metadata = {
+            "mimeType": "application/vnd.google-apps.document",
+        }
         await asyncio.to_thread(
             _retry_api,
             lambda: drive_svc.files()
-            .update(fileId=doc_id, media_body=media)
+            .update(fileId=doc_id, body=update_metadata, media_body=media)
             .execute(),
             "Phase 1 update file",
         )
@@ -528,6 +531,18 @@ async def _phase3_heading_styles(
 
 def _normalize(text: str) -> str:
     """Normalize heading text for fuzzy matching."""
+    # Replace common Unicode arrows and symbols with ASCII equivalents
+    # so that e.g. "→" (U+2192) matches "->" after Google's markdown import.
+    _unicode_to_ascii = {
+        "\u2192": "->",   # → rightwards arrow
+        "\u2190": "<-",   # ← leftwards arrow
+        "\u2191": "^",    # ↑ upwards arrow
+        "\u2193": "v",    # ↓ downwards arrow
+        "\u2014": "--",   # — em dash
+        "\u2013": "-",    # – en dash
+    }
+    for uni, ascii_eq in _unicode_to_ascii.items():
+        text = text.replace(uni, ascii_eq)
     return re.sub(r"[#*_`\s]+", "", text).lower()
 
 
@@ -825,6 +840,146 @@ async def _phase5_table_styling(docs_svc: Any, doc_id: str, style: TufteStyle) -
 
 
 # ---------------------------------------------------------------------------
+# Phase 5.5: Inline bold markers in table cells
+# ---------------------------------------------------------------------------
+
+_BOLD_MARKER_RE = re.compile(r"\*\*(.+?)\*\*")
+
+
+async def _phase5_5_table_inline_bold(
+    docs_svc: Any, doc_id: str, style: TufteStyle
+) -> None:
+    """Convert literal ``**text**`` markers in table cells to bold formatting.
+
+    Google Drive's markdown importer does not process inline bold syntax
+    inside table cells, so the raw ``**`` asterisks survive into the
+    document.  This phase scans every table cell paragraph, locates
+    ``**…**`` patterns, deletes the marker characters, and applies bold
+    to the enclosed text.
+
+    Deletions are applied one-by-one from highest index to lowest so that
+    earlier indices remain valid.
+    """
+    logger.info("[tufte] Phase 5.5: Table inline bold markers")
+
+    doc = await asyncio.to_thread(
+        _retry_api,
+        lambda: docs_svc.documents().get(documentId=doc_id).execute(),
+        "Phase 5.5 get doc",
+    )
+
+    # Collect bold regions and marker positions across all tables.
+    # Each entry: (marker_start, marker_len, bold_start, bold_end)
+    #   where marker positions are the absolute doc indices of the ``**``.
+    bold_regions: list[tuple[int, int]] = []      # (start, end) of text to bold
+    delete_ranges: list[tuple[int, int]] = []     # (start, end) of ``**`` to delete
+
+    for elem in doc["body"]["content"]:
+        table = elem.get("table")
+        if not table:
+            continue
+
+        for row in table.get("tableRows", []):
+            for cell in row.get("tableCells", []):
+                for cell_elem in cell.get("content", []):
+                    cell_para = cell_elem.get("paragraph")
+                    if not cell_para:
+                        continue
+
+                    # Reconstruct the paragraph's plain text and map each
+                    # character position back to its absolute document index.
+                    elements = cell_para.get("elements", [])
+                    full_text = ""
+                    index_map: list[int] = []  # index_map[i] = doc index of char i
+
+                    for run_elem in elements:
+                        tr = run_elem.get("textRun")
+                        if not tr:
+                            continue
+                        content = tr.get("content", "")
+                        run_start = run_elem["startIndex"]
+                        for j, _ in enumerate(content):
+                            index_map.append(run_start + j)
+                        full_text += content
+
+                    if "**" not in full_text:
+                        continue
+
+                    # Find all **…** patterns
+                    for m in _BOLD_MARKER_RE.finditer(full_text):
+                        # m.start() = position of first '*' of opening **
+                        # m.end()   = position after last '*' of closing **
+                        open_start = m.start()       # first * of opening **
+                        open_end = m.start() + 2     # after opening **
+                        close_start = m.end() - 2    # first * of closing **
+                        close_end = m.end()          # after closing **
+
+                        # Absolute doc indices for the opening **
+                        del_open_start = index_map[open_start]
+                        del_open_end = index_map[open_end - 1] + 1
+
+                        # Absolute doc indices for the closing **
+                        del_close_start = index_map[close_start]
+                        del_close_end = index_map[close_end - 1] + 1
+
+                        # Bold region: the text between the markers (before deletion)
+                        bold_start = del_open_end       # right after opening **
+                        bold_end = del_close_start      # right before closing **
+
+                        if bold_end > bold_start:
+                            bold_regions.append((bold_start, bold_end))
+
+                        # Record deletions (closing first so we process end→start)
+                        delete_ranges.append((del_close_start, del_close_end))
+                        delete_ranges.append((del_open_start, del_open_end))
+
+    if not bold_regions and not delete_ranges:
+        logger.info("[tufte] Phase 5.5: No bold markers found in tables")
+        return
+
+    logger.info(
+        "[tufte] Phase 5.5: Found %d bold region(s), %d marker deletion(s)",
+        len(bold_regions),
+        len(delete_ranges),
+    )
+
+    # Step 1: Apply bold styling to the regions (non-destructive, indices still valid)
+    if bold_regions:
+        bold_requests = []
+        for b_start, b_end in bold_regions:
+            bold_requests.append({
+                "updateTextStyle": {
+                    "range": {"startIndex": b_start, "endIndex": b_end},
+                    "textStyle": {"bold": True},
+                    "fields": "bold",
+                }
+            })
+        await _batch_execute(docs_svc, doc_id, bold_requests, "Phase 5.5 bold style")
+
+    # Step 2: Delete ** markers from end to start (one at a time)
+    if delete_ranges:
+        for del_start, del_end in sorted(delete_ranges, key=lambda r: r[0], reverse=True):
+            await asyncio.to_thread(
+                _retry_api,
+                lambda s=del_start, e=del_end: docs_svc.documents()
+                .batchUpdate(
+                    documentId=doc_id,
+                    body={
+                        "requests": [
+                            {
+                                "deleteContentRange": {
+                                    "range": {"startIndex": s, "endIndex": e}
+                                }
+                            }
+                        ]
+                    },
+                )
+                .execute(),
+                "Phase 5.5 delete bold marker",
+            )
+
+
+# ---------------------------------------------------------------------------
 # Phase 6: Image pipeline (ASCII art -> SVG -> PNG -> Drive -> Doc)
 # ---------------------------------------------------------------------------
 
@@ -945,8 +1100,15 @@ async def _phase6_images(
         if insert_index >= doc_end:
             insert_index = doc_end - 1
 
-        image_uri = f"https://drive.google.com/uc?export=view&id={file_id}"
+        image_uri = f"https://lh3.googleusercontent.com/d/{file_id}=s0"
         width_pt = min(style.page_width_pt - style.margin_left_pt - style.margin_right_pt - 20, 700)
+
+        # Compute height from aspect ratio of the ASCII art
+        art_lines = art_content.split("\n")
+        art_max_chars = max((len(line) for line in art_lines), default=1)
+        svg_w = int(art_max_chars * 9.6) + 40
+        svg_h = len(art_lines) * 18 + 40
+        height_pt = int(width_pt * (svg_h / svg_w))
 
         # Insert newline then image
         insert_requests = [
@@ -961,7 +1123,7 @@ async def _phase6_images(
         )
 
         # Re-read doc for updated indices
-        img_request = [create_insert_image_request(insert_index + 1, image_uri, width_pt)]
+        img_request = [create_insert_image_request(insert_index + 1, image_uri, width_pt, height_pt)]
         await asyncio.to_thread(
             _retry_api,
             lambda: docs_svc.documents()
@@ -1136,6 +1298,9 @@ async def publish(
 
     # Phase 5: Table styling
     await _phase5_table_styling(docs_svc, doc_id, style)
+
+    # Phase 5.5: Inline bold markers in table cells
+    await _phase5_5_table_inline_bold(docs_svc, doc_id, style)
 
     # Phase 6: Images
     await _phase6_images(docs_svc, drive_svc, doc_id, original_md, style, cache)
