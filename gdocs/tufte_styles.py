@@ -50,15 +50,28 @@ class TufteStyle:
     # Spacing
     line_spacing: int = 115          # Percentage
     space_below_pt: int = 3          # Universal
+    h1_space_above_pt: int = 36
+    h1_space_below_pt: int = 12
     h2_space_above_pt: int = 24
-    h3_space_above_pt: int = 0
-    h4_space_above_pt: int = 0
+    h2_space_below_pt: int = 8
+    h3_space_above_pt: int = 18
+    h3_space_below_pt: int = 6
+    h4_space_above_pt: int = 14
+    h4_space_below_pt: int = 4
 
-    # Table borders
+    # Table styling (Tufte: no vertical rules, subtle horizontal rules)
     table_border_color: Dict[str, float] = field(
-        default_factory=lambda: {"red": 0.7, "green": 0.7, "blue": 0.7}
+        default_factory=lambda: {"red": 0.8, "green": 0.8, "blue": 0.8}
     )
-    table_border_width: float = 0.5
+    table_border_width: float = 1.0
+    table_header_bg: Optional[Dict[str, float]] = field(
+        default_factory=lambda: {"red": 0.961, "green": 0.961, "blue": 0.961}
+    )
+    table_cell_pad_h_pt: float = 6.0
+    table_cell_pad_v_pt: float = 4.0
+    table_data_color: Optional[Dict[str, float]] = field(
+        default_factory=lambda: {"red": 0.2, "green": 0.2, "blue": 0.2}
+    )
 
     # Font
     font_family: str = "JetBrains Mono"
@@ -107,9 +120,17 @@ _CRT_COMMON = dict(
     h2_bold=True,
     h3_bold=False,
     h4_italic=True,
+    h1_space_above_pt=24,
+    h1_space_below_pt=8,
     h2_space_above_pt=18,
+    h2_space_below_pt=6,
     h3_space_above_pt=12,
+    h3_space_below_pt=4,
+    h4_space_above_pt=10,
+    h4_space_below_pt=3,
     table_border_width=0,
+    table_header_bg=None,
+    table_data_color=None,
     font_family="JetBrains Mono",
     font_weight=400,
     background=_CRT_NEAR_BLACK,

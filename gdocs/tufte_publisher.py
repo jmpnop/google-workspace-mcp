@@ -180,6 +180,80 @@ def _preprocess_code_blocks(md_text: str) -> str:
     return "\n".join(result)
 
 
+def _is_table_separator(line: str) -> bool:
+    """Return True if *line* is a markdown table separator row (e.g. |---|---|)."""
+    stripped = line.strip()
+    return bool(re.match(r"^\|[\s\-:| ]+\|$", stripped)) and "---" in stripped
+
+
+def _preprocess_tables(md_text: str) -> str:
+    """Fix markdown tables so Google Drive's markdown importer recognises them.
+
+    Google Drive's ``text/markdown`` import is undocumented and has at least
+    two known parser limitations that cause tables to render as raw ASCII
+    pipe-text instead of native Google Docs tables:
+
+    1. **Missing blank line before table.**  When a table header row
+       immediately follows a paragraph line (no intervening blank line),
+       Google's parser treats the table as paragraph continuation.
+       Standard GFM allows this, but Google does not.  Fix: insert a
+       blank line before the header row.
+
+    2. **Non-ASCII characters in the header row.**  If the header row
+       (the first ``| … |`` line) contains non-ASCII characters such as
+       en-dash (U+2013), Google's parser fails to recognise the row as a
+       table header.  Fix: replace common typographic characters with
+       their ASCII equivalents in header rows only (data rows are left
+       untouched).
+    """
+    _HEADER_REPLACEMENTS = {
+        "\u2013": "-",   # en-dash  → hyphen
+        "\u2014": "-",   # em-dash  → hyphen
+        "\u2018": "'",   # left single quote
+        "\u2019": "'",   # right single quote
+        "\u201C": '"',   # left double quote
+        "\u201D": '"',   # right double quote
+        "\u2026": "...", # ellipsis
+        "\u00D7": "x",   # multiplication sign
+    }
+
+    lines = md_text.split("\n")
+    result: list[str] = []
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+
+        # Detect a table header: current line is ``| … |`` and the
+        # very next line is a separator row ``|---|---|…|``.
+        is_header = (
+            stripped.startswith("|")
+            and stripped.endswith("|")
+            and i + 1 < len(lines)
+            and _is_table_separator(lines[i + 1])
+        )
+
+        if is_header:
+            # --- Fix 1: ensure a blank line precedes the header --------
+            prev = result[-1].strip() if result else ""
+            if prev != "" and not re.match(r"^#{1,6}\s", prev):
+                result.append("")
+
+            # --- Fix 2: normalise non-ASCII chars in the header row ----
+            fixed = stripped
+            for orig, repl in _HEADER_REPLACEMENTS.items():
+                if orig in fixed:
+                    fixed = fixed.replace(orig, repl)
+            if fixed != stripped:
+                logger.debug(
+                    "[tufte] _preprocess_tables: normalised header at line %d", i + 1
+                )
+            result.append(fixed)
+        else:
+            result.append(line)
+
+    return "\n".join(result)
+
+
 def _extract_headings(md_text: str) -> List[Tuple[int, str]]:
     """Parse markdown headings. Returns [(level, text), ...]."""
     headings = []
@@ -425,22 +499,23 @@ async def _phase3_heading_styles(
             end = elem["endIndex"]
 
             if is_first_heading and level == 1:
-                # First H1 becomes TITLE
                 requests.append(fmt_heading(start, end, -1, space_below=style.space_below_pt))
                 is_first_heading = False
             elif level == 1:
-                requests.append(fmt_heading(start, end, 1, space_below=style.space_below_pt))
+                requests.append(
+                    fmt_heading(start, end, 1, space_above=style.h1_space_above_pt, space_below=style.h1_space_below_pt)
+                )
             elif level == 2:
                 requests.append(
-                    fmt_heading(start, end, 2, space_above=style.h2_space_above_pt, space_below=style.space_below_pt)
+                    fmt_heading(start, end, 2, space_above=style.h2_space_above_pt, space_below=style.h2_space_below_pt)
                 )
             elif level == 3:
                 requests.append(
-                    fmt_heading(start, end, 3, space_above=style.h3_space_above_pt, space_below=style.space_below_pt)
+                    fmt_heading(start, end, 3, space_above=style.h3_space_above_pt, space_below=style.h3_space_below_pt)
                 )
             elif level == 4:
                 requests.append(
-                    fmt_heading(start, end, 4, space_above=style.h4_space_above_pt, space_below=style.space_below_pt)
+                    fmt_heading(start, end, 4, space_above=style.h4_space_above_pt, space_below=style.h4_space_below_pt)
                 )
             else:
                 requests.append(fmt_heading(start, end, min(level, 6), space_below=style.space_below_pt))
@@ -619,7 +694,8 @@ async def _phase4_5_code_blocks(docs_svc: Any, doc_id: str, style: TufteStyle) -
 
 
 async def _phase5_table_styling(docs_svc: Any, doc_id: str, style: TufteStyle) -> None:
-    """Apply borders, header bold, and font sizing to all tables."""
+    """Apply Tufte table styling: no vertical rules, subtle horizontal rules,
+    shaded header row, proper cell padding, and per-row text styling."""
     logger.info("[tufte] Phase 5: Table styling")
 
     doc = await asyncio.to_thread(
@@ -629,6 +705,21 @@ async def _phase5_table_styling(docs_svc: Any, doc_id: str, style: TufteStyle) -
     )
 
     requests = []
+
+    no_border = {
+        "width": {"magnitude": 0, "unit": "PT"},
+        "dashStyle": "SOLID",
+        "color": {"color": {"rgbColor": {"red": 0, "green": 0, "blue": 0}}},
+    }
+
+    h_rule = {
+        "width": {"magnitude": style.table_border_width, "unit": "PT"},
+        "dashStyle": "SOLID",
+        "color": {"color": {"rgbColor": style.table_border_color}},
+    } if style.table_border_width > 0 else no_border
+
+    pad_h = {"magnitude": style.table_cell_pad_h_pt, "unit": "PT"}
+    pad_v = {"magnitude": style.table_cell_pad_v_pt, "unit": "PT"}
 
     for elem in doc["body"]["content"]:
         table = elem.get("table")
@@ -640,31 +731,75 @@ async def _phase5_table_styling(docs_svc: Any, doc_id: str, style: TufteStyle) -
         if not rows:
             continue
 
-        # Border style for all cells
-        if style.table_border_width > 0:
-            border = {
-                "width": {"magnitude": style.table_border_width, "unit": "PT"},
-                "dashStyle": "SOLID",
-                "color": {"color": {"rgbColor": style.table_border_color}},
-            }
-            cell_style = {
-                "borderTop": border,
-                "borderBottom": border,
-                "borderLeft": border,
-                "borderRight": border,
-            }
-            requests.append(
-                {
-                    "updateTableCellStyle": {
-                        "tableStartLocation": {"index": table_start},
-                        "tableCellStyle": cell_style,
-                        "fields": "borderTop,borderBottom,borderLeft,borderRight",
-                    }
-                }
-            )
+        num_rows = len(rows)
+        num_cols = len(rows[0].get("tableCells", []))
 
-        # Style text in each row
+        # Step 1: Reset all cells — no borders, uniform padding
+        base_cell_style = {
+            "borderTop": no_border,
+            "borderBottom": no_border,
+            "borderLeft": no_border,
+            "borderRight": no_border,
+            "paddingLeft": pad_h,
+            "paddingRight": pad_h,
+            "paddingTop": pad_v,
+            "paddingBottom": pad_v,
+        }
+        requests.append({
+            "updateTableCellStyle": {
+                "tableStartLocation": {"index": table_start},
+                "tableCellStyle": base_cell_style,
+                "fields": "borderTop,borderBottom,borderLeft,borderRight,paddingLeft,paddingRight,paddingTop,paddingBottom",
+            }
+        })
+
+        # Step 2: Header row — top and bottom horizontal rules + background
+        header_style = {
+            "borderTop": h_rule,
+            "borderBottom": h_rule,
+        }
+        header_fields = ["borderTop", "borderBottom"]
+        if style.table_header_bg:
+            header_style["backgroundColor"] = {"color": {"rgbColor": style.table_header_bg}}
+            header_fields.append("backgroundColor")
+
+        requests.append({
+            "updateTableCellStyle": {
+                "tableRange": {
+                    "tableCellLocation": {
+                        "tableStartLocation": {"index": table_start},
+                        "rowIndex": 0,
+                        "columnIndex": 0,
+                    },
+                    "rowSpan": 1,
+                    "columnSpan": num_cols,
+                },
+                "tableCellStyle": header_style,
+                "fields": ",".join(header_fields),
+            }
+        })
+
+        # Step 3: Last row — bottom horizontal rule
+        if num_rows > 1:
+            requests.append({
+                "updateTableCellStyle": {
+                    "tableRange": {
+                        "tableCellLocation": {
+                            "tableStartLocation": {"index": table_start},
+                            "rowIndex": num_rows - 1,
+                            "columnIndex": 0,
+                        },
+                        "rowSpan": 1,
+                        "columnSpan": num_cols,
+                    },
+                    "tableCellStyle": {"borderBottom": h_rule},
+                    "fields": "borderBottom",
+                }
+            })
+
+        # Step 4: Style text in each row
         for row_idx, row in enumerate(rows):
+            is_header = row_idx == 0
             for cell in row.get("tableCells", []):
                 for cell_elem in cell.get("content", []):
                     cell_para = cell_elem.get("paragraph")
@@ -673,14 +808,15 @@ async def _phase5_table_styling(docs_svc: Any, doc_id: str, style: TufteStyle) -
                     cell_start = cell_elem["startIndex"]
                     cell_end = cell_elem["endIndex"]
 
-                    # Table font size + color
+                    text_color = style.ink if is_header else (style.table_data_color or style.ink)
                     requests.append(
                         fmt_text(
                             cell_start,
                             cell_end,
                             style,
-                            font_size=style.table_size,
-                            bold=(row_idx == 0),  # Header row is bold
+                            font_size=style.body_size,
+                            bold=is_header,
+                            fg_color=text_color,
                         )
                     )
 
@@ -966,6 +1102,9 @@ async def publish(
 
     # Preprocess: handle code blocks (ZWJ markers)
     processed_md = _preprocess_code_blocks(markdown_content)
+
+    # Preprocess: fix tables for Google Drive's markdown parser
+    processed_md = _preprocess_tables(processed_md)
 
     # Detect and strip ASCII art blocks
     art_blocks = _detect_ascii_art_blocks(processed_md)

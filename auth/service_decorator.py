@@ -28,6 +28,7 @@ from auth.scopes import (
     GMAIL_MODIFY_SCOPE,
     GMAIL_LABELS_SCOPE,
     GMAIL_SETTINGS_BASIC_SCOPE,
+    DRIVE_SCOPE,
     DRIVE_READONLY_SCOPE,
     DRIVE_FILE_SCOPE,
     DOCS_READONLY_SCOPE,
@@ -427,6 +428,7 @@ SCOPE_GROUPS = {
     "gmail_settings_basic": GMAIL_SETTINGS_BASIC_SCOPE,
     # Drive scopes
     "drive_read": DRIVE_READONLY_SCOPE,
+    "drive_write": DRIVE_SCOPE,
     "drive_file": DRIVE_FILE_SCOPE,
     # Docs scopes
     "docs_read": DOCS_READONLY_SCOPE,
