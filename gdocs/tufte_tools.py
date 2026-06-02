@@ -74,11 +74,13 @@ async def publish_markdown_tufte(
     Returns:
         JSON string with doc_id, url, title, style, and cached fields
     """
+    base_dir = ""
     if markdown_file and not markdown_content:
         path = Path(markdown_file).expanduser()
         if not path.is_file():
             return json.dumps({"error": f"File not found: {path}"})
         markdown_content = path.read_text(encoding="utf-8")
+        base_dir = str(path.parent)
         if not title:
             title = path.stem.replace("_", " ").replace("-", " ").title()
 
@@ -103,6 +105,7 @@ async def publish_markdown_tufte(
         style=tufte_style,
         cache=_cache,
         explicit_doc_id=doc_id,
+        base_dir=base_dir,
     )
 
     return json.dumps(result, indent=2)

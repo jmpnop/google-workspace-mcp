@@ -92,6 +92,27 @@ TUFTE_CLASSIC = TufteStyle(
 )
 
 # ---------------------------------------------------------------------------
+# Makarina preset — Classic light theme but in Domine (serif).
+# The house style for the Makarina project (overrides the JetBrains Mono
+# default for this brand). Domine ships weights 400–700 on Google Fonts.
+# ---------------------------------------------------------------------------
+
+TUFTE_MAKARINA = TufteStyle(
+    name="makarina",
+    ink={"red": 0.102, "green": 0.102, "blue": 0.102},           # #1A1A1A
+    h3_color={"red": 0.263, "green": 0.263, "blue": 0.263},
+    h4_color={"red": 0.4, "green": 0.4, "blue": 0.4},
+    code_bg={"red": 0.95, "green": 0.95, "blue": 0.95},
+    background=None,
+    body_size=11,                                                  # serif reads a touch smaller
+    table_size=10,
+    code_size=9,
+    h2_bold=True,
+    font_family="Domine",
+    font_weight=400,
+)
+
+# ---------------------------------------------------------------------------
 # CRT presets — near-black bg, phosphor-colored text
 # ---------------------------------------------------------------------------
 
@@ -180,6 +201,7 @@ CRT_BRIGHT = {
 # Lookup table: style name -> TufteStyle
 STYLES = {
     "classic": TUFTE_CLASSIC,
+    "makarina": TUFTE_MAKARINA,   # Domine serif — Makarina house style
     "crt": TUFTE_CRT_CYAN,      # Default CRT = cyan
     "crt-c": TUFTE_CRT_CYAN,
     "crt-a": TUFTE_CRT_AMBER,
