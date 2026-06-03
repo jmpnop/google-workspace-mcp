@@ -39,6 +39,7 @@ class TufteStyle:
     body_size: int = 12
     table_size: int = 10
     code_size: int = 9
+    deck_size: int = 14              # standfirst/subtitle under the title
 
     # Typography weight/style
     title_bold: bool = False
@@ -104,6 +105,8 @@ TUFTE_MAKARINA = TufteStyle(
     h4_color={"red": 0.4, "green": 0.4, "blue": 0.4},
     code_bg={"red": 0.95, "green": 0.95, "blue": 0.95},
     background=None,
+    title_size=30,                                                 # grander title presence
+    deck_size=16,                                                  # larger standfirst/deck
     body_size=12,                                                  # 12pt minimum across the doc
     table_size=12,
     code_size=12,

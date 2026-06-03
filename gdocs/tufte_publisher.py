@@ -662,6 +662,8 @@ async def _phase4_font_formatting(docs_svc: Any, doc_id: str, style: TufteStyle)
     ]
 
     # Per-heading overrides
+    seen_title = False
+    deck_done = False
     for elem in doc["body"]["content"]:
         para = elem.get("paragraph")
         if not para:
@@ -669,6 +671,9 @@ async def _phase4_font_formatting(docs_svc: Any, doc_id: str, style: TufteStyle)
         named = para.get("paragraphStyle", {}).get("namedStyleType", "")
         start = elem["startIndex"]
         end = elem["endIndex"]
+        text = "".join(
+            run.get("textRun", {}).get("content", "") for run in para.get("elements", [])
+        ).strip()
 
         if named == "TITLE":
             requests.append(
@@ -682,6 +687,21 @@ async def _phase4_font_formatting(docs_svc: Any, doc_id: str, style: TufteStyle)
                     "fields": "alignment",
                 }
             })
+            # Give the title more presence: a heavier weight than body text
+            requests.append({
+                "updateTextStyle": {
+                    "range": {"startIndex": start, "endIndex": end},
+                    "textStyle": {"weightedFontFamily": {"fontFamily": style.font_family, "weight": 600}},
+                    "fields": "weightedFontFamily",
+                }
+            })
+            seen_title = True
+        elif named in ("NORMAL_TEXT", "") and seen_title and not deck_done and text:
+            # Standfirst / deck: the first real paragraph after the title — larger, muted, italic.
+            requests.append(
+                fmt_text(start, end, style, font_size=style.deck_size, italic=True, fg_color=style.h3_color)
+            )
+            deck_done = True
         elif named == "HEADING_1":
             requests.append(
                 fmt_text(start, end, style, font_size=style.h1_size, bold=style.h1_bold, fg_color=title_color)
@@ -1335,7 +1355,9 @@ async def _phase6b_local_images(
     md_lines = original_md.split("\n")
     base = Path(base_dir).expanduser() if base_dir else Path.cwd()
 
-    for line_idx, alt, src in images:
+    # Reverse order: consecutive images sharing one text anchor (e.g. a stack of
+    # figures after a list) then land in their original top-to-bottom order.
+    for line_idx, alt, src in reversed(images):
         img_path = Path(src).expanduser()
         if not img_path.is_absolute():
             img_path = (base / src).resolve()
@@ -1349,7 +1371,10 @@ async def _phase6b_local_images(
             ln = md_lines[i].strip()
             if not ln:
                 continue
-            if _IMG_RE.fullmatch(ln) or re.match(r"^-{3,}\s*$", ln):
+            # Skip lines that don't survive import as a matchable body paragraph:
+            # images, horizontal rules, table rows (|...), and blockquotes (>...).
+            if (_IMG_RE.fullmatch(ln) or re.match(r"^-{3,}\s*$", ln)
+                    or ln.startswith("|") or ln.startswith(">")):
                 continue
             anchor_text = re.sub(r"^#{1,6}\s+", "", ln)
             break
@@ -1402,9 +1427,10 @@ async def _phase6b_local_images(
         )
         insert_index = _find_para_end_index(doc, anchor_text) if anchor_text else None
         if insert_index is None:
-            # Fallback: after the document title (first paragraph), else top.
-            body = doc["body"]["content"]
-            insert_index = body[1]["endIndex"] if len(body) > 1 else 1
+            # Anchor not found — append at the end of the doc rather than teleporting
+            # the image to the top (the old fallback put it right under the title).
+            logger.warning(f"[tufte] Phase 6b: anchor not found for image '{src}'; appending at end")
+            insert_index = _get_doc_length(doc) - 1
 
         doc_end = _get_doc_length(doc)
         if insert_index >= doc_end:
