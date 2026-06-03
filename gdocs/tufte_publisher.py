@@ -1426,6 +1426,108 @@ async def _phase6b_local_images(
 
 
 # ---------------------------------------------------------------------------
+# Phase 6c: Tidy paragraphs — remove import-created empty paragraphs, set spacing
+# ---------------------------------------------------------------------------
+
+
+def _para_text(para: dict) -> str:
+    return "".join(
+        e.get("textRun", {}).get("content", "") for e in para.get("elements", [])
+    )
+
+
+def _para_has_inline_object(para: dict) -> bool:
+    return any("inlineObjectElement" in e for e in para.get("elements", []))
+
+
+async def _phase6c_tidy_paragraphs(docs_svc: Any, doc_id: str, style: TufteStyle) -> None:
+    """Remove the empty paragraphs Google's markdown importer creates for every
+    blank-line separator (which double-space the whole doc), then set a sane
+    paragraph gap so separation comes from spacing, not blank lines."""
+    logger.info("[tufte] Phase 6c: Tidy paragraphs (remove empty, set spacing)")
+
+    doc = await asyncio.to_thread(
+        _retry_api,
+        lambda: docs_svc.documents().get(documentId=doc_id).execute(),
+        "Phase 6c get doc",
+    )
+    body = doc["body"]["content"]
+    n = len(body)
+
+    dels = []
+    for i, elem in enumerate(body):
+        para = elem.get("paragraph")
+        if not para:
+            continue
+        if _para_has_inline_object(para):
+            continue  # keep image paragraphs
+        if _para_text(para).strip() != "":
+            continue  # keep paragraphs with real text
+        if i == 0 or i == n - 1:
+            continue  # keep the first/last paragraph mark (structural)
+        prev = body[i - 1] if i > 0 else None
+        nxt = body[i + 1] if i + 1 < n else None
+        # Docs requires a paragraph adjacent to tables and at boundaries — don't
+        # delete an empty paragraph that sits right before or after a table.
+        if (prev is not None and "table" in prev) or (nxt is not None and "table" in nxt):
+            continue
+        dels.append((elem["startIndex"], elem["endIndex"]))
+
+    # Delete one-by-one in reverse (indices stay valid) and skip any range Docs
+    # refuses — a single undeletable paragraph must not fail the whole publish.
+    deleted = 0
+    for s, e in sorted(dels, key=lambda r: r[0], reverse=True):
+        try:
+            await asyncio.to_thread(
+                _retry_api,
+                lambda s=s, e=e: docs_svc.documents()
+                .batchUpdate(
+                    documentId=doc_id,
+                    body={"requests": [{"deleteContentRange": {"range": {"startIndex": s, "endIndex": e}}}]},
+                )
+                .execute(),
+                "Phase 6c delete empty",
+            )
+            deleted += 1
+        except Exception as exc:
+            logger.warning(f"[tufte] Phase 6c: skip undeletable empty paragraph [{s},{e}): {exc}")
+    logger.info(f"[tufte] Phase 6c: removed {deleted}/{len(dels)} empty paragraphs")
+
+    # Set a comfortable paragraph gap on remaining body paragraphs (not headings).
+    doc = await asyncio.to_thread(
+        _retry_api,
+        lambda: docs_svc.documents().get(documentId=doc_id).execute(),
+        "Phase 6c get doc 2",
+    )
+    sb = max(style.space_below_pt, 6)
+    headings = {"TITLE", "HEADING_1", "HEADING_2", "HEADING_3", "HEADING_4", "HEADING_5", "HEADING_6"}
+    spacing_reqs = []
+    for elem in doc["body"]["content"]:
+        para = elem.get("paragraph")
+        if not para:
+            continue
+        named = para.get("paragraphStyle", {}).get("namedStyleType", "")
+        if named in headings:
+            continue
+        if _para_has_inline_object(para):
+            continue
+        if _para_text(para).strip() == "":
+            continue
+        spacing_reqs.append({
+            "updateParagraphStyle": {
+                "range": {"startIndex": elem["startIndex"], "endIndex": elem["endIndex"]},
+                "paragraphStyle": {
+                    "spaceAbove": {"magnitude": 0, "unit": "PT"},
+                    "spaceBelow": {"magnitude": sb, "unit": "PT"},
+                },
+                "fields": "spaceAbove,spaceBelow",
+            }
+        })
+    if spacing_reqs:
+        await _batch_execute(docs_svc, doc_id, spacing_reqs, "Phase 6c spacing")
+
+
+# ---------------------------------------------------------------------------
 # Phase 7: Pageless mode
 # ---------------------------------------------------------------------------
 
@@ -1531,6 +1633,9 @@ async def publish(
 
     # Phase 6b: Local image references (![alt](local/path))
     await _phase6b_local_images(docs_svc, drive_svc, doc_id, original_md, base_dir, style, cache)
+
+    # Phase 6c: Remove import-created empty paragraphs + set paragraph spacing
+    await _phase6c_tidy_paragraphs(docs_svc, doc_id, style)
 
     # Phase 7: Pageless mode
     await _phase7_pageless(docs_svc, doc_id)

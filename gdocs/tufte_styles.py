@@ -107,6 +107,7 @@ TUFTE_MAKARINA = TufteStyle(
     body_size=12,                                                  # 12pt minimum across the doc
     table_size=12,
     code_size=12,
+    space_below_pt=8,                                              # paragraph gap (empties are removed post-import)
     h2_bold=True,
     font_family="Domine",
     font_weight=400,
