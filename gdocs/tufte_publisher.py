@@ -674,6 +674,14 @@ async def _phase4_font_formatting(docs_svc: Any, doc_id: str, style: TufteStyle)
             requests.append(
                 fmt_text(start, end, style, font_size=style.title_size, bold=style.title_bold, fg_color=title_color)
             )
+            # Left-align the document title (Docs centers TITLE by default)
+            requests.append({
+                "updateParagraphStyle": {
+                    "range": {"startIndex": start, "endIndex": end},
+                    "paragraphStyle": {"alignment": "START"},
+                    "fields": "alignment",
+                }
+            })
         elif named == "HEADING_1":
             requests.append(
                 fmt_text(start, end, style, font_size=style.h1_size, bold=style.h1_bold, fg_color=title_color)
