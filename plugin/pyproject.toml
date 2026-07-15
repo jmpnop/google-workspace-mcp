@@ -22,3 +22,6 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["gdocs_tufte_plugin*"]
+
+[tool.setuptools.package-data]
+gdocs_tufte_plugin = ["fonts/*.ttf"]
