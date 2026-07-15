@@ -1,0 +1,6 @@
+{
+  "name": "gdocs-tufte",
+  "version": "0.1.0",
+  "description": "Publish Tufte-styled Google Docs (Classic + CRT/amber/green) with tables and diagrams via the workspace MCP.",
+  "keywords": ["tufte", "google-docs", "crt", "publishing", "diagrams"]
+}

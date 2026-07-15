@@ -20,8 +20,8 @@ from googleapiclient.http import MediaIoBaseUpload
 
 from gdocs.docs_helpers import create_insert_image_request
 from gdocs.docs_svg import _svg_to_png_bytes
-from gdocs.tufte_cache import TuftePubCache
-from gdocs.tufte_styles import (
+from gdocs_tufte_plugin.tufte_cache import TuftePubCache
+from gdocs_tufte_plugin.tufte_styles import (
     TufteStyle,
     fmt_text,
     fmt_heading,

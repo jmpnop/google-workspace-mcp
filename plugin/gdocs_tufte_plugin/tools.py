@@ -12,9 +12,9 @@ from typing import Any
 from auth.service_decorator import require_multiple_services
 from core.server import server
 from core.utils import handle_http_errors
-from gdocs.tufte_cache import TuftePubCache
-from gdocs.tufte_publisher import publish
-from gdocs.tufte_styles import get_style
+from gdocs_tufte_plugin.tufte_cache import TuftePubCache
+from gdocs_tufte_plugin.tufte_publisher import publish
+from gdocs_tufte_plugin.tufte_styles import get_style
 
 logger = logging.getLogger(__name__)
 

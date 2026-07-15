@@ -238,7 +238,7 @@ def main():
         "gmail": lambda: import_module("gmail.gmail_tools"),
         "drive": lambda: import_module("gdrive.drive_tools"),
         "calendar": lambda: import_module("gcalendar.calendar_tools"),
-        "docs": lambda: (import_module("gdocs.docs_tools"), import_module("gdocs.docs_git_versioning"), import_module("gdocs.docs_svg"), import_module("gdocs.tufte_tools")),
+        "docs": lambda: (import_module("gdocs.docs_tools"), import_module("gdocs.docs_git_versioning"), import_module("gdocs.docs_svg")),
         "sheets": lambda: import_module("gsheets.sheets_tools"),
         "chat": lambda: import_module("gchat.chat_tools"),
         "forms": lambda: import_module("gforms.forms_tools"),
@@ -315,6 +315,28 @@ def main():
             logger.error("Failed to import tool '%s': %s", tool, exc, exc_info=True)
             safe_print(f"   ⚠️ Failed to load {tool.title()} tool module ({exc}).")
     safe_print("")
+
+    # Load out-of-tree tool plugins advertised via the "workspace_mcp.tools"
+    # entry-point group. Importing each entry point's module runs its
+    # @server.tool() decorators against the shared `server` singleton, exactly
+    # like the in-tree tool modules above. This is the only extension seam:
+    # external pip packages contribute tools without editing this file further.
+    try:
+        from importlib.metadata import entry_points as _entry_points
+
+        _eps = _entry_points(group="workspace_mcp.tools")
+    except Exception as _eps_exc:  # pragma: no cover - importlib API drift
+        _eps = ()
+        logger.debug("entry_points lookup failed: %s", _eps_exc)
+    for _ep in _eps:
+        try:
+            _ep.load()  # importing the module registers its tools as a side effect
+            safe_print(f"   🔌 Plugin loaded: {_ep.name}")
+        except Exception as _plugin_exc:  # noqa: BLE001 - one bad plugin must not abort startup
+            logger.error(
+                "Failed to load tool plugin '%s': %s", _ep.name, _plugin_exc, exc_info=True
+            )
+            safe_print(f"   ⚠️ Failed to load plugin '{_ep.name}' ({_plugin_exc}).")
 
     # Filter tools based on tier configuration (if tier-based loading is enabled)
     filter_server_tools(server)
