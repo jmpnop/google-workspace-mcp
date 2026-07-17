@@ -24,4 +24,4 @@ where = ["."]
 include = ["gdocs_tufte_plugin*"]
 
 [tool.setuptools.package-data]
-gdocs_tufte_plugin = ["fonts/*.ttf"]
+gdocs_tufte_plugin = ["fonts/*.ttf", "render/*.html"]
