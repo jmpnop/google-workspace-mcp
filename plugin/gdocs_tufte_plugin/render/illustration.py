@@ -8,18 +8,21 @@ paper so the image hugs its content.
 Chro is a declared dependency (the editorial/classic renderer). The lightweight
 SVG and Pillow-CRT renderers cover the case where Chro is unavailable.
 
-NOTE (build-specific): on the local Chro macOS build, the app clones itself for
-code-signing (`code_sign_clone_manager`), which breaks CLI `--screenshot` — no
-file is produced. The `render_html_png` CLI path below works on stock
-Chromium/CI; on the local Chro build the robust path is CDP (launch with
-`--remote-debugging-port`, `Page.navigate` + `Page.captureScreenshot`), matching
-the `chro` skill. CDP capture is the follow-up (`render_html_png_cdp`).
+Two capture backends: CDP (default, `render_html_png_cdp`) drives Chro over the
+DevTools Protocol (`Page.captureScreenshot`) and is robust on the local Chro
+build, whose code-sign clone (`code_sign_clone_manager`) breaks CLI
+`--screenshot`; the CLI path (`render_html_png(prefer="cli")`) works on stock
+Chromium/CI. `render_html_png` tries CDP first and falls back to CLI.
 """
 
+import base64
+import json
 import os
+import socket
 import subprocess
 import tempfile
 import time
+import urllib.request
 from pathlib import Path
 
 from PIL import Image
@@ -81,9 +84,97 @@ def _trim(path: str) -> tuple:
     return new_w, new_h
 
 
+def _free_port() -> int:
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    p = s.getsockname()[1]
+    s.close()
+    return p
+
+
+def render_html_png_cdp(html: str, width: int = _DEFAULT_WIDTH, out_path: str = None,
+                        trim: bool = True, timeout: int = 25) -> str:
+    """Render HTML to a 2x PNG via Chro over the DevTools Protocol.
+
+    This is the robust path on the local Chro build (whose code-sign clone
+    breaks CLI --screenshot). Launches headless Chro with remote debugging,
+    drives Emulation.setDeviceMetricsOverride (2x) + Page.captureScreenshot.
+    Requires `websocket-client`.
+    """
+    from websocket import create_connection  # lazy: only the CDP path needs it
+
+    binary = chro_binary()
+    ts = int(time.time())
+    out_path = out_path or os.path.join(tempfile.gettempdir(), f"tufte_illus_{ts}.png")
+    port = _free_port()
+    with tempfile.TemporaryDirectory() as td:
+        html_path = os.path.join(td, "page.html")
+        Path(html_path).write_text(html, encoding="utf-8")
+        proc = subprocess.Popen(
+            [binary, "--headless=new", "--disable-gpu", "--no-sandbox",
+             "--no-first-run", "--no-default-browser-check",
+             "--hide-scrollbars", f"--remote-debugging-port={port}",
+             "--remote-allow-origins=*",
+             f"--user-data-dir={os.path.join(td, 'prof')}", "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            ws_url = None
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                try:
+                    data = urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/json", timeout=2
+                    ).read()
+                    for t in json.loads(data):
+                        if t.get("type") == "page" and t.get("webSocketDebuggerUrl"):
+                            ws_url = t["webSocketDebuggerUrl"]
+                            break
+                    if ws_url:
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.5)
+            if not ws_url:
+                raise RuntimeError("Chro CDP endpoint not reachable")
+
+            ws = create_connection(ws_url, timeout=timeout, max_size=None)
+            _i = [0]
+
+            def cmd(method, params=None):
+                _i[0] += 1
+                mid = _i[0]
+                ws.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
+                while True:
+                    msg = json.loads(ws.recv())
+                    if msg.get("id") == mid:
+                        return msg.get("result", {})
+
+            cmd("Page.enable")
+            cmd("Emulation.setDeviceMetricsOverride",
+                {"width": width, "height": 1600, "deviceScaleFactor": 2, "mobile": False})
+            cmd("Page.navigate", {"url": f"file://{html_path}"})
+            time.sleep(4)  # let layout + the Domine webfont settle
+            shot = cmd("Page.captureScreenshot", {"format": "png", "captureBeyondViewport": True})
+            ws.close()
+            Path(out_path).write_bytes(base64.b64decode(shot["data"]))
+        finally:
+            proc.kill()
+            proc.wait()
+    if not (os.path.exists(out_path) and os.path.getsize(out_path) > 0):
+        raise RuntimeError("Chro CDP produced no screenshot")
+    if trim:
+        _trim(out_path)
+    return out_path
+
+
 def render_html_png(html: str, width: int = _DEFAULT_WIDTH, out_path: str = None,
-                    trim: bool = True, timeout: int = 20) -> str:
+                    trim: bool = True, timeout: int = 25, prefer: str = "cdp") -> str:
     """Render a full HTML string to a trimmed 2x PNG via headless Chro.
+
+    prefer="cdp" (default) uses the DevTools-Protocol path (robust on the local
+    Chro code-sign-clone build); "cli" uses --screenshot (stock Chromium/CI).
+    Falls back to the other path on failure.
 
     Args:
         html: complete HTML document (use load_template() as a base).
@@ -92,6 +183,11 @@ def render_html_png(html: str, width: int = _DEFAULT_WIDTH, out_path: str = None
         trim: crop trailing paper to a uniform margin.
     Returns the PNG path.
     """
+    if prefer == "cdp":
+        try:
+            return render_html_png_cdp(html, width, out_path, trim, timeout)
+        except Exception:
+            pass  # fall through to CLI
     binary = chro_binary()
     ts = int(time.time())
     out_path = out_path or os.path.join(tempfile.gettempdir(), f"tufte_illus_{ts}.png")
