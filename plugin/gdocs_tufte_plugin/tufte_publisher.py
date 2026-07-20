@@ -27,6 +27,7 @@ from gdocs_tufte_plugin.tufte_styles import (
     fmt_heading,
     get_title_color,
 )
+from gdocs_tufte_plugin.syntax import highlight_spans
 
 logger = logging.getLogger(__name__)
 
@@ -798,6 +799,23 @@ async def _phase4_5_code_blocks(docs_svc: Any, doc_id: str, style: TufteStyle) -
             # Delete from start to just after the second ZWJ
             marker_end = start + second_zwj + 1
             delete_requests.append((start, marker_end))
+
+            # Per-language syntax highlighting: the marker is ZWJ+lang+ZWJ, so
+            # the code text begins at marker_end. Colour keyword/comment spans in
+            # the active style's palette (bright / faint). Applied AFTER the code
+            # style above so sub-range colours win; pre-deletion indices survive
+            # the marker delete (styles ride their text runs).
+            lang = content[1:second_zwj].strip()
+            code_text = content[second_zwj + 1:]
+            for sp_start, sp_end, role in highlight_spans(code_text, lang):
+                span_color = get_title_color(style) if role == "keyword" else style.h4_color
+                style_requests.append(
+                    fmt_text(
+                        marker_end + sp_start, marker_end + sp_end, style,
+                        font_size=style.code_size, fg_color=span_color,
+                        italic=(role == "comment"),
+                    )
+                )
 
     if style_requests:
         await _batch_execute(docs_svc, doc_id, style_requests, "Phase 4.5 code style")
