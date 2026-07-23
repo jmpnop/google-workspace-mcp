@@ -39,6 +39,7 @@ class TufteStyle:
     body_size: int = 12
     table_size: int = 10
     code_size: int = 9
+    deck_size: int = 14              # standfirst/subtitle under the title
 
     # Typography weight/style
     title_bold: bool = False
@@ -89,6 +90,30 @@ TUFTE_CLASSIC = TufteStyle(
     h4_color={"red": 0.4, "green": 0.4, "blue": 0.4},
     code_bg={"red": 0.95, "green": 0.95, "blue": 0.95},          # Light gray
     background=None,                                                # White (default)
+)
+
+# ---------------------------------------------------------------------------
+# Makarina preset — Classic light theme but in Domine (serif).
+# The house style for the Makarina project (overrides the JetBrains Mono
+# default for this brand). Domine ships weights 400–700 on Google Fonts.
+# ---------------------------------------------------------------------------
+
+TUFTE_MAKARINA = TufteStyle(
+    name="makarina",
+    ink={"red": 0.102, "green": 0.102, "blue": 0.102},           # #1A1A1A
+    h3_color={"red": 0.263, "green": 0.263, "blue": 0.263},
+    h4_color={"red": 0.4, "green": 0.4, "blue": 0.4},
+    code_bg={"red": 0.95, "green": 0.95, "blue": 0.95},
+    background=None,
+    title_size=30,                                                 # grander title presence
+    deck_size=16,                                                  # larger standfirst/deck
+    body_size=12,                                                  # 12pt minimum across the doc
+    table_size=12,
+    code_size=12,
+    space_below_pt=8,                                              # paragraph gap (empties are removed post-import)
+    h2_bold=True,
+    font_family="Domine",
+    font_weight=400,
 )
 
 # ---------------------------------------------------------------------------
@@ -180,6 +205,7 @@ CRT_BRIGHT = {
 # Lookup table: style name -> TufteStyle
 STYLES = {
     "classic": TUFTE_CLASSIC,
+    "makarina": TUFTE_MAKARINA,   # Domine serif — Makarina house style
     "crt": TUFTE_CRT_CYAN,      # Default CRT = cyan
     "crt-c": TUFTE_CRT_CYAN,
     "crt-a": TUFTE_CRT_AMBER,

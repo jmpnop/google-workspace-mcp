@@ -10,21 +10,24 @@ import asyncio
 import hashlib
 import io
 import logging
+import mimetypes
 import re
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from googleapiclient.http import MediaIoBaseUpload
 
 from gdocs.docs_helpers import create_insert_image_request
 from gdocs.docs_svg import _svg_to_png_bytes
-from gdocs.tufte_cache import TuftePubCache
-from gdocs.tufte_styles import (
+from gdocs_tufte_plugin.tufte_cache import TuftePubCache
+from gdocs_tufte_plugin.tufte_styles import (
     TufteStyle,
     fmt_text,
     fmt_heading,
     get_title_color,
 )
+from gdocs_tufte_plugin.syntax import highlight_spans
 
 logger = logging.getLogger(__name__)
 
@@ -264,6 +267,94 @@ def _extract_headings(md_text: str) -> List[Tuple[int, str]]:
             text = m.group(2).strip()
             headings.append((level, text))
     return headings
+
+
+# ---------------------------------------------------------------------------
+# Local image references  ![alt](path)
+# ---------------------------------------------------------------------------
+
+# Matches a markdown image: ![alt](src "optional title")
+_IMG_RE = re.compile(r'!\[([^\]]*)\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\s*\)')
+
+
+def _is_remote(src: str) -> bool:
+    """True if the image src is a remote/data URI that Drive can fetch itself."""
+    return bool(re.match(r'^(https?:|data:|//)', src.strip()))
+
+
+def _detect_local_images(md_text: str) -> List[Tuple[int, str, str]]:
+    """Find LOCAL markdown image references. Returns [(line_index, alt, src), ...].
+
+    Remote/data images are left for Drive's importer; only local file paths
+    (which Drive cannot fetch and which 500 the importer) are returned here.
+    """
+    out: List[Tuple[int, str, str]] = []
+    for i, line in enumerate(md_text.split("\n")):
+        for m in _IMG_RE.finditer(line):
+            src = m.group(2).strip().strip("<>")
+            if _is_remote(src):
+                continue
+            out.append((i, m.group(1), src))
+    return out
+
+
+def _strip_local_images(md_text: str) -> str:
+    """Remove LOCAL image markdown before the Drive import (it can't fetch them).
+
+    Remote images are preserved so Drive can still embed them.
+    """
+    def _repl(m: "re.Match") -> str:
+        src = m.group(2).strip().strip("<>")
+        return m.group(0) if _is_remote(src) else ""
+
+    return _IMG_RE.sub(_repl, md_text)
+
+
+def _image_dims(path: Path) -> Optional[Tuple[int, int]]:
+    """Return (width, height) in pixels for an image, or None if undeterminable.
+
+    PNG is read straight from the IHDR header (no deps); other formats fall
+    back to Pillow if available.
+    """
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(26)
+        if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+            w = int.from_bytes(head[16:20], "big")
+            h = int.from_bytes(head[20:24], "big")
+            if w and h:
+                return w, h
+    except Exception:
+        pass
+    try:
+        from PIL import Image  # type: ignore
+
+        with Image.open(path) as im:
+            return im.size
+    except Exception:
+        return None
+
+
+def _find_para_end_index(doc: dict, anchor_text: str) -> Optional[int]:
+    """Find the endIndex of the paragraph whose text matches *anchor_text*.
+
+    Matches headings or body paragraphs (normalized, fuzzy contains), so a
+    local image can be anchored to whatever line preceded it in the markdown.
+    """
+    norm = _normalize(anchor_text)
+    if not norm:
+        return None
+    for elem in doc["body"]["content"]:
+        para = elem.get("paragraph")
+        if not para:
+            continue
+        ptext = "".join(
+            run.get("textRun", {}).get("content", "") for run in para.get("elements", [])
+        )
+        n = _normalize(ptext.strip())
+        if n and (n == norm or norm in n or n in norm):
+            return elem["endIndex"]
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -572,6 +663,8 @@ async def _phase4_font_formatting(docs_svc: Any, doc_id: str, style: TufteStyle)
     ]
 
     # Per-heading overrides
+    seen_title = False
+    deck_done = False
     for elem in doc["body"]["content"]:
         para = elem.get("paragraph")
         if not para:
@@ -579,11 +672,37 @@ async def _phase4_font_formatting(docs_svc: Any, doc_id: str, style: TufteStyle)
         named = para.get("paragraphStyle", {}).get("namedStyleType", "")
         start = elem["startIndex"]
         end = elem["endIndex"]
+        text = "".join(
+            run.get("textRun", {}).get("content", "") for run in para.get("elements", [])
+        ).strip()
 
         if named == "TITLE":
             requests.append(
                 fmt_text(start, end, style, font_size=style.title_size, bold=style.title_bold, fg_color=title_color)
             )
+            # Left-align the document title (Docs centers TITLE by default)
+            requests.append({
+                "updateParagraphStyle": {
+                    "range": {"startIndex": start, "endIndex": end},
+                    "paragraphStyle": {"alignment": "START"},
+                    "fields": "alignment",
+                }
+            })
+            # Give the title more presence: a heavier weight than body text
+            requests.append({
+                "updateTextStyle": {
+                    "range": {"startIndex": start, "endIndex": end},
+                    "textStyle": {"weightedFontFamily": {"fontFamily": style.font_family, "weight": 600}},
+                    "fields": "weightedFontFamily",
+                }
+            })
+            seen_title = True
+        elif named in ("NORMAL_TEXT", "") and seen_title and not deck_done and text:
+            # Standfirst / deck: the first real paragraph after the title — larger, muted, italic.
+            requests.append(
+                fmt_text(start, end, style, font_size=style.deck_size, italic=True, fg_color=style.h3_color)
+            )
+            deck_done = True
         elif named == "HEADING_1":
             requests.append(
                 fmt_text(start, end, style, font_size=style.h1_size, bold=style.h1_bold, fg_color=title_color)
@@ -680,6 +799,23 @@ async def _phase4_5_code_blocks(docs_svc: Any, doc_id: str, style: TufteStyle) -
             # Delete from start to just after the second ZWJ
             marker_end = start + second_zwj + 1
             delete_requests.append((start, marker_end))
+
+            # Per-language syntax highlighting: the marker is ZWJ+lang+ZWJ, so
+            # the code text begins at marker_end. Colour keyword/comment spans in
+            # the active style's palette (bright / faint). Applied AFTER the code
+            # style above so sub-range colours win; pre-deletion indices survive
+            # the marker delete (styles ride their text runs).
+            lang = content[1:second_zwj].strip()
+            code_text = content[second_zwj + 1:]
+            for sp_start, sp_end, role in highlight_spans(code_text, lang):
+                span_color = get_title_color(style) if role == "keyword" else style.h4_color
+                style_requests.append(
+                    fmt_text(
+                        marker_end + sp_start, marker_end + sp_end, style,
+                        font_size=style.code_size, fg_color=span_color,
+                        italic=(role == "comment"),
+                    )
+                )
 
     if style_requests:
         await _batch_execute(docs_svc, doc_id, style_requests, "Phase 4.5 code style")
@@ -1210,6 +1346,240 @@ def _find_heading_end_index(doc: dict, heading_text: str) -> Optional[int]:
 
 
 # ---------------------------------------------------------------------------
+# Phase 6b: Local image references (![alt](local/path) -> Drive -> Doc)
+# ---------------------------------------------------------------------------
+
+
+async def _phase6b_local_images(
+    docs_svc: Any,
+    drive_svc: Any,
+    doc_id: str,
+    original_md: str,
+    base_dir: str,
+    style: TufteStyle,
+    cache: TuftePubCache,
+) -> None:
+    """Embed LOCAL markdown images that Drive's importer cannot fetch.
+
+    For each ``![alt](local/path)`` reference: resolve the path (relative to
+    the markdown file's directory), upload the file to Drive (cached, public),
+    and insert it inline after the line that preceded it in the markdown.
+    """
+    images = _detect_local_images(original_md)
+    if not images:
+        logger.info("[tufte] Phase 6b: No local images found, skipping")
+        return
+
+    md_lines = original_md.split("\n")
+    base = Path(base_dir).expanduser() if base_dir else Path.cwd()
+
+    # Reverse order: consecutive images sharing one text anchor (e.g. a stack of
+    # figures after a list) then land in their original top-to-bottom order.
+    for line_idx, alt, src in reversed(images):
+        img_path = Path(src).expanduser()
+        if not img_path.is_absolute():
+            img_path = (base / src).resolve()
+        if not img_path.is_file():
+            logger.warning(f"[tufte] Phase 6b: local image not found: {img_path} (from '{src}')")
+            continue
+
+        # Anchor: the nearest non-empty, non-image markdown line above the image.
+        anchor_text = None
+        for i in range(line_idx, -1, -1):
+            ln = md_lines[i].strip()
+            if not ln:
+                continue
+            # Skip lines that don't survive import as a matchable body paragraph:
+            # images, horizontal rules, table rows (|...), and blockquotes (>...).
+            if (_IMG_RE.fullmatch(ln) or re.match(r"^-{3,}\s*$", ln)
+                    or ln.startswith("|") or ln.startswith(">")):
+                continue
+            anchor_text = re.sub(r"^#{1,6}\s+", "", ln)
+            break
+
+        # Upload (or reuse cached) the image on Drive.
+        data = img_path.read_bytes()
+        img_hash = hashlib.sha256(data).hexdigest()
+        file_id = cache.get_image(img_hash)
+        if file_id:
+            try:
+                await asyncio.to_thread(
+                    drive_svc.files().get(fileId=file_id, fields="id").execute
+                )
+            except Exception:
+                file_id = None
+
+        if not file_id:
+            mime = mimetypes.guess_type(str(img_path))[0] or "image/png"
+            meta = {"name": f"tufte_img_{img_hash[:12]}{img_path.suffix or '.png'}", "mimeType": mime}
+
+            def _upload(d=data, m=mime, md=meta):
+                media = MediaIoBaseUpload(io.BytesIO(d), mimetype=m, resumable=True)
+                return drive_svc.files().create(body=md, media_body=media, fields="id").execute()
+
+            created = await asyncio.to_thread(_retry_api, _upload, "Phase 6b upload image")
+            file_id = created["id"]
+            await asyncio.to_thread(
+                _retry_api,
+                lambda fid=file_id: drive_svc.permissions()
+                .create(fileId=fid, body={"type": "anyone", "role": "reader"})
+                .execute(),
+                "Phase 6b set permission",
+            )
+            cache.set_image(img_hash, file_id)
+            logger.info(f"[tufte] Phase 6b: uploaded local image {img_path.name}: {file_id}")
+
+        # Size: fit content width, preserve aspect ratio.
+        width_pt = min(style.page_width_pt - style.margin_left_pt - style.margin_right_pt - 20, 700)
+        dims = _image_dims(img_path)
+        if dims and dims[0]:
+            height_pt = int(width_pt * dims[1] / dims[0])
+        else:
+            height_pt = int(width_pt * 0.6)
+
+        # Locate the insertion point.
+        doc = await asyncio.to_thread(
+            _retry_api,
+            lambda: docs_svc.documents().get(documentId=doc_id).execute(),
+            "Phase 6b get doc",
+        )
+        insert_index = _find_para_end_index(doc, anchor_text) if anchor_text else None
+        if insert_index is None:
+            # Anchor not found — append at the end of the doc rather than teleporting
+            # the image to the top (the old fallback put it right under the title).
+            logger.warning(f"[tufte] Phase 6b: anchor not found for image '{src}'; appending at end")
+            insert_index = _get_doc_length(doc) - 1
+
+        doc_end = _get_doc_length(doc)
+        if insert_index >= doc_end:
+            insert_index = doc_end - 1
+
+        image_uri = f"https://lh3.googleusercontent.com/d/{file_id}=s0"
+
+        await asyncio.to_thread(
+            _retry_api,
+            lambda idx=insert_index: docs_svc.documents()
+            .batchUpdate(
+                documentId=doc_id,
+                body={"requests": [{"insertText": {"location": {"index": idx}, "text": "\n"}}]},
+            )
+            .execute(),
+            "Phase 6b insert newline",
+        )
+        img_request = [create_insert_image_request(insert_index + 1, image_uri, width_pt, height_pt)]
+        await asyncio.to_thread(
+            _retry_api,
+            lambda r=img_request: docs_svc.documents()
+            .batchUpdate(documentId=doc_id, body={"requests": r})
+            .execute(),
+            "Phase 6b insert image",
+        )
+        logger.info(f"[tufte] Phase 6b: inserted local image '{src}' at index {insert_index + 1}")
+
+
+# ---------------------------------------------------------------------------
+# Phase 6c: Tidy paragraphs — remove import-created empty paragraphs, set spacing
+# ---------------------------------------------------------------------------
+
+
+def _para_text(para: dict) -> str:
+    return "".join(
+        e.get("textRun", {}).get("content", "") for e in para.get("elements", [])
+    )
+
+
+def _para_has_inline_object(para: dict) -> bool:
+    return any("inlineObjectElement" in e for e in para.get("elements", []))
+
+
+async def _phase6c_tidy_paragraphs(docs_svc: Any, doc_id: str, style: TufteStyle) -> None:
+    """Remove the empty paragraphs Google's markdown importer creates for every
+    blank-line separator (which double-space the whole doc), then set a sane
+    paragraph gap so separation comes from spacing, not blank lines."""
+    logger.info("[tufte] Phase 6c: Tidy paragraphs (remove empty, set spacing)")
+
+    doc = await asyncio.to_thread(
+        _retry_api,
+        lambda: docs_svc.documents().get(documentId=doc_id).execute(),
+        "Phase 6c get doc",
+    )
+    body = doc["body"]["content"]
+    n = len(body)
+
+    dels = []
+    for i, elem in enumerate(body):
+        para = elem.get("paragraph")
+        if not para:
+            continue
+        if _para_has_inline_object(para):
+            continue  # keep image paragraphs
+        if _para_text(para).strip() != "":
+            continue  # keep paragraphs with real text
+        if i == 0 or i == n - 1:
+            continue  # keep the first/last paragraph mark (structural)
+        prev = body[i - 1] if i > 0 else None
+        nxt = body[i + 1] if i + 1 < n else None
+        # Docs requires a paragraph adjacent to tables and at boundaries — don't
+        # delete an empty paragraph that sits right before or after a table.
+        if (prev is not None and "table" in prev) or (nxt is not None and "table" in nxt):
+            continue
+        dels.append((elem["startIndex"], elem["endIndex"]))
+
+    # Delete one-by-one in reverse (indices stay valid) and skip any range Docs
+    # refuses — a single undeletable paragraph must not fail the whole publish.
+    deleted = 0
+    for s, e in sorted(dels, key=lambda r: r[0], reverse=True):
+        try:
+            await asyncio.to_thread(
+                _retry_api,
+                lambda s=s, e=e: docs_svc.documents()
+                .batchUpdate(
+                    documentId=doc_id,
+                    body={"requests": [{"deleteContentRange": {"range": {"startIndex": s, "endIndex": e}}}]},
+                )
+                .execute(),
+                "Phase 6c delete empty",
+            )
+            deleted += 1
+        except Exception as exc:
+            logger.warning(f"[tufte] Phase 6c: skip undeletable empty paragraph [{s},{e}): {exc}")
+    logger.info(f"[tufte] Phase 6c: removed {deleted}/{len(dels)} empty paragraphs")
+
+    # Set a comfortable paragraph gap on remaining body paragraphs (not headings).
+    doc = await asyncio.to_thread(
+        _retry_api,
+        lambda: docs_svc.documents().get(documentId=doc_id).execute(),
+        "Phase 6c get doc 2",
+    )
+    sb = max(style.space_below_pt, 6)
+    headings = {"TITLE", "HEADING_1", "HEADING_2", "HEADING_3", "HEADING_4", "HEADING_5", "HEADING_6"}
+    spacing_reqs = []
+    for elem in doc["body"]["content"]:
+        para = elem.get("paragraph")
+        if not para:
+            continue
+        named = para.get("paragraphStyle", {}).get("namedStyleType", "")
+        if named in headings:
+            continue
+        if _para_has_inline_object(para):
+            continue
+        if _para_text(para).strip() == "":
+            continue
+        spacing_reqs.append({
+            "updateParagraphStyle": {
+                "range": {"startIndex": elem["startIndex"], "endIndex": elem["endIndex"]},
+                "paragraphStyle": {
+                    "spaceAbove": {"magnitude": 0, "unit": "PT"},
+                    "spaceBelow": {"magnitude": sb, "unit": "PT"},
+                },
+                "fields": "spaceAbove,spaceBelow",
+            }
+        })
+    if spacing_reqs:
+        await _batch_execute(docs_svc, doc_id, spacing_reqs, "Phase 6c spacing")
+
+
+# ---------------------------------------------------------------------------
 # Phase 7: Pageless mode
 # ---------------------------------------------------------------------------
 
@@ -1254,8 +1624,12 @@ async def publish(
     style: TufteStyle,
     cache: TuftePubCache,
     explicit_doc_id: str = "",
+    base_dir: str = "",
 ) -> Dict[str, Any]:
     """Run the full 9-phase Tufte publishing pipeline.
+
+    ``base_dir`` is the directory local image references resolve against
+    (the markdown file's folder); defaults to the current working directory.
 
     Returns dict with doc_id, url, title, style, cached.
     """
@@ -1267,6 +1641,10 @@ async def publish(
 
     # Preprocess: fix tables for Google Drive's markdown parser
     processed_md = _preprocess_tables(processed_md)
+
+    # Strip LOCAL image refs — Drive's importer 500s on local paths; they are
+    # re-inserted from Drive in Phase 6b. Remote/data images are left in place.
+    processed_md = _strip_local_images(processed_md)
 
     # Detect and strip ASCII art blocks
     art_blocks = _detect_ascii_art_blocks(processed_md)
@@ -1290,8 +1668,8 @@ async def publish(
     # Phase 4: Font formatting
     await _phase4_font_formatting(docs_svc, doc_id, style)
 
-    # Phase 4 verification
-    await _phase4_verify_font(docs_svc, doc_id)
+    # Phase 4 verification (against the style's own font)
+    await _phase4_verify_font(docs_svc, doc_id, style.font_family)
 
     # Phase 4.5: Code block styling
     await _phase4_5_code_blocks(docs_svc, doc_id, style)
@@ -1302,8 +1680,14 @@ async def publish(
     # Phase 5.5: Inline bold markers in table cells
     await _phase5_5_table_inline_bold(docs_svc, doc_id, style)
 
-    # Phase 6: Images
+    # Phase 6: Images (ASCII art)
     await _phase6_images(docs_svc, drive_svc, doc_id, original_md, style, cache)
+
+    # Phase 6b: Local image references (![alt](local/path))
+    await _phase6b_local_images(docs_svc, drive_svc, doc_id, original_md, base_dir, style, cache)
+
+    # Phase 6c: Remove import-created empty paragraphs + set paragraph spacing
+    await _phase6c_tidy_paragraphs(docs_svc, doc_id, style)
 
     # Phase 7: Pageless mode
     await _phase7_pageless(docs_svc, doc_id)

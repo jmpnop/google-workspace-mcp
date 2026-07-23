@@ -38,3 +38,7 @@ ecosystem.config.cjs
 
 # ---- Agent instructions (not for distribution) -------------------------
 .github/instructions/
+.venv-test/
+plugin/**/*.egg-info/
+__pycache__/
+*.pyc

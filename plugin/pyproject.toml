@@ -1,0 +1,28 @@
+[project]
+name = "gdocs-tufte-plugin"
+version = "0.1.0"
+description = "Tufte-styled Google Docs publishing (Classic + CRT) — an out-of-tree tool plugin for google-workspace-mcp."
+requires-python = ">=3.10"
+# Core modules (core.*, auth.*, gdocs.docs_*) are provided in-process by the
+# host google-workspace-mcp runtime and are intentionally NOT pip dependencies.
+# Only genuinely-new third-party deps are declared here.
+dependencies = [
+    "Pillow>=10.0.0",          # raster CRT renderer (render/crt_raster.py)
+    "websocket-client>=1.6.0", # CDP screenshot for the illustration renderer
+]
+
+# The extension seam: main.py scans this entry-point group at startup and
+# imports each module, which registers its @server.tool() tools.
+[project.entry-points."workspace_mcp.tools"]
+gdocs_tufte = "gdocs_tufte_plugin.tools"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gdocs_tufte_plugin*"]
+
+[tool.setuptools.package-data]
+gdocs_tufte_plugin = ["fonts/*.ttf", "render/*.html"]
