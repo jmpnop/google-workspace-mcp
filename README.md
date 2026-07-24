@@ -18,9 +18,9 @@ Built on [taylorwilsdon/google_workspace_mcp](https://github.com/taylorwilsdon/g
 
 ## 🚀 What's New in This Fork
 
-### Tufte Publishing System (MCP Tool + Claude Code Skills)
+### Tufte Publishing System (`gdocs-tufte` plugin)
 
-Two complete design systems for publishing Google Docs with Edward Tufte's principles. The `publish_markdown_tufte` MCP tool runs the full 9-phase pipeline server-side — hand it markdown, get back a formatted Google Doc. No generated scripts, no boilerplate.
+Two complete design systems for publishing Google Docs with Edward Tufte's principles, packaged as an **out-of-tree plugin** ([`plugin/`](plugin/)) that attaches via the `workspace_mcp.tools` entry-point seam — core carries no Tufte code. The `publish_markdown_tufte` tool runs the full 9-phase pipeline server-side (hand it markdown, get back a formatted Google Doc); `render_tufte_graphic` renders standalone CRT tables/charts/diagrams. No generated scripts, no boilerplate.
 
 | | **Classic** (light) | **CRT** (dark) |
 |---|---|---|
@@ -133,25 +133,38 @@ This file contains your access token, refresh token, and granted scopes. It's **
 
 Override the storage location with `WORKSPACE_MCP_CREDENTIALS_DIR`.
 
-### How Tufte Scripts Find Credentials
+### How the Tufte plugin uses credentials
 
-The Tufte publishing skills reuse the **same token files** — no separate auth flow. After you've authenticated with the MCP server once, the Tufte scripts auto-discover the first `*.json` in the credentials directory:
+No separate auth flow. The plugin's MCP tools (`publish_markdown_tufte`,
+`render_tufte_graphic`) receive Google `docs`/`drive` services from the server's
+OAuth via `require_multiple_services` — the **same token files** as every other
+tool. The renderers themselves (`crt_raster`, `illustration`) are pure and need
+no credentials; only Drive upload does, and the tool injects it.
 
-```python
-cred_dir = os.environ.get("WORKSPACE_MCP_CREDENTIALS_DIR",
-           "~/.google_workspace_mcp/credentials")
-cred_path = sorted(Path(cred_dir).glob("*.json"))[0]  # first user
-```
-
-**TL;DR:** Set up OAuth once → MCP server and Tufte scripts both work.
+**TL;DR:** Set up OAuth once → the MCP server and the Tufte plugin both work.
 
 ---
 
 ## 🎨 Tufte-Styled Google Docs
 
-### MCP Tool (Recommended)
+### Install
 
-The `publish_markdown_tufte` tool runs the full pipeline server-side. Any MCP client can call it:
+The `gdocs-tufte` plugin bundles the MCP tools **and** the skill:
+
+```
+/plugin install gdocs-tufte@registry
+```
+
+Or install the Python package into the server venv — it registers via the
+`workspace_mcp.tools` entry-point seam on restart:
+
+```
+uv pip install -e plugin/
+```
+
+### MCP tools
+
+`publish_markdown_tufte` runs the full pipeline server-side. Any MCP client can call it:
 
 ```
 publish_markdown_tufte(
@@ -164,19 +177,16 @@ publish_markdown_tufte(
 
 Returns JSON with `doc_id`, `url`, `title`, `style`, and `cached` fields. Re-publishing the same title updates the existing doc in place (cached by title). Uploaded images are cached by SHA-256 hash.
 
+`render_tufte_graphic` renders a `table` / `bar` / `diagram` / `distribution` to a CRT PNG (true glow/scanlines/vignette) and optionally uploads it to Drive — for clients that want a graphic without a whole doc.
+
 Cache location: `~/.google_workspace_mcp/cache/tufte/`
 
-### Claude Code Skills
+### Claude Code Skill
 
-Three companion skills are available for Claude Code (install to `~/.claude/skills/`):
-
-| Skill | Purpose |
-|---|---|
-| `gdocs-tufte` | Quick guide — shows both styles, helps you choose |
-| `gdocs-tufte-classic` | Classic style reference and usage instructions |
-| `gdocs-tufte-crt` | CRT style reference with color variant details |
-
-All skills call the `publish_markdown_tufte` MCP tool — no scripts are generated.
+The plugin bundles a single **`gdocs-tufte`** skill with Classic and CRT variant
+sections; it calls the MCP tools — no scripts are generated — and ships with
+`/plugin install gdocs-tufte@registry`. (The older split `gdocs-tufte-classic` /
+`gdocs-tufte-crt` skills are superseded by this one.)
 
 In Claude Code, say:
 - **"publish to Google Docs in Tufte style"** — Classic (white background, near-black ink)

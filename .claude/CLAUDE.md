@@ -2,25 +2,39 @@
 
 These instructions apply automatically to anyone using Claude Code in this repository.
 
-## Tufte Google Docs Publishing
+## Tufte Google Docs Publishing (plugin)
 
-The `publish_markdown_tufte` MCP tool handles all Tufte-style publishing. **Never generate standalone Python publishing scripts.**
+Tufte/CRT publishing lives in the **out-of-tree `gdocs-tufte` plugin** at
+[`plugin/`](plugin/) — not in core. It attaches through the `workspace_mcp.tools`
+entry-point seam (`main.py`), so core carries no Tufte code. **Never generate
+standalone Python publishing scripts** — use the plugin's tools.
 
-When the user says "publish to Google Docs in Tufte style":
+The plugin exposes two MCP tools:
 
-1. Read the markdown source (from file or user-provided content)
-2. Call the `publish_markdown_tufte` MCP tool with:
-   - `markdown_content`: the raw markdown text
-   - `title`: document title
-   - `style`: `"classic"` (default), `"crt"`, `"crt-a"`, or `"crt-g"`
-   - `doc_id` (optional): update an existing document
-3. Return the Google Docs link from the response
+- **`publish_markdown_tufte`** — markdown → styled Google Doc.
+  1. Read the markdown source (file or content).
+  2. Call with `markdown_content` (or `markdown_file`), `title`, `style`
+     (`"classic"` default, `"crt"`/`"crt-c"`, `"crt-a"`, `"crt-g"`), optional `doc_id`.
+  3. Return the Google Docs link.
+- **`render_tufte_graphic`** — render a `table`/`bar`/`diagram`/`distribution`
+  to a CRT PNG (glow/scanlines/vignette) with optional Drive upload. For clients
+  (e.g. Telegram bots) that want a graphic without a whole doc.
 
-The tool wraps a Python publishing script (`gdocs/tufte_publisher.py`) that uses the Google Docs API directly — not piecemeal MCP tool calls. The script lives here in the MCP project. NEVER generate publishing scripts in client projects.
+**Code layout** (`plugin/gdocs_tufte_plugin/`): `tufte_publisher.py` (the 9-phase
+pipeline), `tufte_styles.py` (single palette source), `tufte_cache.py`,
+`syntax.py` (rust/sql/json/toml/sh highlighting), and `render/` — three renderers
+behind one interface: `ascii_svg` (vector), `crt_raster` (Pillow CRT effects),
+`illustration` (HTML/CSS → Chro/CDP classic). Fonts (JetBrains Mono) are vendored
+in `fonts/`.
 
-The 9-phase pipeline: markdown import, page setup, heading styles, font formatting (JetBrains Mono 400 with verification), code blocks, table styling, ASCII art → SVG → PNG images, and pageless mode.
+9-phase pipeline: markdown import, page setup, heading styles, font formatting
+(JetBrains Mono 400, verified), code blocks + syntax highlighting, table styling,
+ASCII-art → image diagrams, pageless.
 
-**Caching:** Title→doc_id is cached (re-publishing updates in place). Images cached by SHA-256 hash. Cache dir: `~/.google_workspace_mcp/cache/tufte/`
+**Caching:** Title→doc_id + SHA-256 image cache at `~/.google_workspace_mcp/cache/tufte/`.
+
+**Install:** `/plugin install gdocs-tufte@registry` (delivers the skill + tools), or
+`uv pip install -e plugin/` into the server venv (registers via the seam on restart).
 
 ### Style reference
 
