@@ -22,6 +22,7 @@ dependencies = [
  "python-dotenv>=1.1.0",
  "pyyaml>=6.0.2",
  "cryptography>=45.0.0",
+ "gdocs-tufte-plugin",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -112,3 +113,6 @@ addopts = "--ignore-glob=**/manual_test.py"
 
 [tool.setuptools.package-data]
 core = ["tool_tiers.yaml"]
+
+[tool.uv.sources]
+gdocs-tufte-plugin = { path = "plugin", editable = true }
