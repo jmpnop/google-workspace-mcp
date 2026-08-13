@@ -20,6 +20,7 @@ from googleapiclient.http import MediaIoBaseUpload
 
 from gdocs.docs_helpers import create_insert_image_request
 from gdocs.docs_svg import _svg_to_png_bytes
+from gdocs_tufte_plugin.render import ascii_svg
 from gdocs_tufte_plugin.tufte_cache import TuftePubCache
 from gdocs_tufte_plugin.tufte_styles import (
     TufteStyle,
@@ -1120,6 +1121,17 @@ async def _phase5_5_table_inline_bold(
 # ---------------------------------------------------------------------------
 
 
+def _diagram_cache_key(art_content: str, style: TufteStyle) -> str:
+    """Content hash for a diagram's cached PNG.
+
+    Keyed on (render version, style name, art) so that: a renderer change
+    invalidates old images, and the same art in different styles (classic ink
+    vs. CRT phosphor) never collides onto one image.
+    """
+    key = f"{ascii_svg.RENDER_VERSION}\x00{style.name}\x00{art_content}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
 async def _phase6_images(
     docs_svc: Any,
     drive_svc: Any,
@@ -1163,8 +1175,10 @@ async def _phase6_images(
             logger.warning(f"[tufte] Phase 6: No preceding heading found for art block at line {start_line}")
             continue
 
-        # Check image cache
-        art_hash = hashlib.sha256(art_content.encode("utf-8")).hexdigest()
+        # Check image cache (keyed on render version + style + art; see
+        # _diagram_cache_key) so a renderer change or a style switch never
+        # reuses a stale or wrong-colored image.
+        art_hash = _diagram_cache_key(art_content, style)
         cached_file_id = cache.get_image(art_hash)
 
         if cached_file_id:
@@ -1239,14 +1253,19 @@ async def _phase6_images(
         image_uri = f"https://lh3.googleusercontent.com/d/{file_id}=s0"
         width_pt = min(style.page_width_pt - style.margin_left_pt - style.margin_right_pt - 20, 700)
 
-        # Compute height from aspect ratio of the ASCII art
-        art_lines = art_content.split("\n")
-        art_max_chars = max((len(line) for line in art_lines), default=1)
-        svg_w = int(art_max_chars * 9.6) + 40
-        svg_h = len(art_lines) * 18 + 40
+        # Compute height from aspect ratio of the ASCII art. Uses the renderer's
+        # own grid metrics so the placed image matches the PNG's true aspect.
+        svg_w, svg_h = ascii_svg.ascii_svg_dimensions(art_content)
         height_pt = int(width_pt * (svg_h / svg_w))
 
-        # Insert newline then image
+        # Open a fresh, empty paragraph after the heading and put the image in
+        # IT — not at insert_index+1, which is the start of the following text
+        # paragraph and would glue the image inline before that text (leaving
+        # the caption stranded beside the image on wide/CRT layouts). Inserting
+        # the newline at insert_index makes [insert_index, insert_index+1) an
+        # empty paragraph; inserting the image at insert_index places it before
+        # that newline, so the image occupies its own paragraph and the caption
+        # stays separate. The inline object also keeps Phase 6c from deleting it.
         insert_requests = [
             {"insertText": {"location": {"index": insert_index}, "text": "\n"}},
         ]
@@ -1258,8 +1277,8 @@ async def _phase6_images(
             "Phase 6 insert newline",
         )
 
-        # Re-read doc for updated indices
-        img_request = [create_insert_image_request(insert_index + 1, image_uri, width_pt, height_pt)]
+        # Image in its own paragraph (before the newline inserted above).
+        img_request = [create_insert_image_request(insert_index, image_uri, width_pt, height_pt)]
         await asyncio.to_thread(
             _retry_api,
             lambda: docs_svc.documents()
@@ -1272,52 +1291,23 @@ async def _phase6_images(
 
 
 def _ascii_art_to_svg(art: str, style: TufteStyle) -> str:
-    """Wrap ASCII/box-drawing art in an SVG that renders it as monospace text."""
-    lines = art.split("\n")
-    max_width = max((len(line) for line in lines), default=0)
-    line_height = 18
-    char_width = 9.6  # Approximate for JetBrains Mono at 14px
+    """Render ASCII/box-drawing art to a deterministic vector-glyph SVG.
 
-    svg_width = int(max_width * char_width) + 40
-    svg_height = len(lines) * line_height + 40
-
-    # Choose colors based on style
+    Delegates to :mod:`gdocs_tufte_plugin.render.ascii_svg`, which places each
+    character's JetBrains Mono outline on an explicit grid so box-art columns
+    never shear regardless of the SVG rasterizer's font resolution. This
+    function only maps the Tufte palette to hex fills.
+    """
     if style.background is not None:
-        # CRT: dark bg, use ink color for strokes
+        # CRT: dark bg, phosphor ink for strokes.
         bg_fill = _rgb_to_hex(style.background)
         text_fill = _rgb_to_hex(style.ink)
     else:
-        # Classic: white bg, dark text
+        # Classic: white bg, near-black ink.
         bg_fill = "#FFFFFF"
         text_fill = "#1A1A1A"
 
-    text_elements = []
-    for i, line in enumerate(lines):
-        if not line.strip():
-            continue
-        # Escape XML entities
-        escaped = (
-            line.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-        )
-        y = 20 + (i + 1) * line_height
-        text_elements.append(
-            f'  <text x="20" y="{y}" '
-            f'font-family="JetBrains Mono, Menlo, monospace" '
-            f'font-size="14" fill="{text_fill}" '
-            f'xml:space="preserve">{escaped}</text>'
-        )
-
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" '
-        f'width="{svg_width}" height="{svg_height}" '
-        f'viewBox="0 0 {svg_width} {svg_height}">\n'
-        f'  <rect width="{svg_width}" height="{svg_height}" fill="{bg_fill}" rx="3"/>\n'
-        + "\n".join(text_elements)
-        + "\n</svg>"
-    )
+    return ascii_svg.ascii_art_to_svg(art, ink_hex=text_fill, bg_hex=bg_fill)
 
 
 def _rgb_to_hex(color: Dict[str, float]) -> str:
